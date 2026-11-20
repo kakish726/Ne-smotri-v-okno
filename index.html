@@ -37,13 +37,16 @@ button:active{transform:scale(.96)}
 #joy{position:fixed;left:0;top:0;width:0;height:0;z-index:12;display:none}
 #joybase{position:absolute;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);left:-60px;top:-60px}
 #joyknob{position:absolute;width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.35);left:-27px;top:-27px}
+#redflash{position:fixed;inset:0;background:rgba(140,0,0,.4);z-index:30;display:none;pointer-events:none}
+#redflash.on{display:block;animation:blink .15s infinite}
 #jumpscare{background:#000;z-index:40}
-.face{position:relative;width:72vmin;height:72vmin;animation:jsh .07s infinite}
-@keyframes jsh{0%{transform:translate(-5px,3px) scale(1.03)}25%{transform:translate(6px,-4px) scale(1.07)}50%{transform:translate(-4px,-5px) scale(1.05)}75%{transform:translate(5px,4px) scale(1.09)}100%{transform:translate(-5px,3px) scale(1.03)}}
+.face{position:relative;width:78vmin;height:78vmin;animation:jsh .07s infinite}
+@keyframes jsh{0%{transform:translate(-8px,5px) scale(1.05)}25%{transform:translate(9px,-6px) scale(1.1)}50%{transform:translate(-6px,-7px) scale(1.07)}75%{transform:translate(8px,6px) scale(1.12)}100%{transform:translate(-8px,5px) scale(1.05)}}
 .eye{position:absolute;top:20%;width:24%;height:28%;border-radius:50%;background:radial-gradient(circle,#fff 0%,#ffe6e6 30%,#c40000 68%,#2a0000 100%);box-shadow:0 0 70px 20px rgba(255,30,30,.75)}
 .eye.l{left:12%}.eye.r{right:12%}
 .pup{position:absolute;top:34%;left:37%;width:26%;height:32%;border-radius:50%;background:#000}
-.mouth{position:absolute;bottom:6%;left:16%;width:68%;height:26%;background:radial-gradient(ellipse at center,#4a0000 0%,#000 72%);border-radius:0 0 45% 45%/0 0 100% 100%;overflow:hidden}
+.mouth{position:absolute;bottom:6%;left:16%;width:68%;height:26%;background:radial-gradient(ellipse at center,#4a0000 0%,#000 72%);border-radius:0 0 45% 45%/0 0 100% 100%;overflow:hidden;animation:chomp .22s infinite}
+@keyframes chomp{50%{transform:scaleY(.45)}}
 .teeth{position:absolute;top:0;left:0;right:0;height:38%;background:repeating-linear-gradient(90deg,#e8e2cf 0 8%,transparent 8% 14%)}
 #death{background:radial-gradient(ellipse at center,#200 0%,#000 80%)}
 #win{background:radial-gradient(ellipse at center,#1c2416 0%,#000 80%)}
@@ -64,6 +67,7 @@ button:active{transform:scale(.96)}
 <div id="stam"><div id="stamfill"></div></div>
 <div id="sprint">БЕГ</div>
 <div id="joy"><div id="joybase"></div><div id="joyknob"></div></div>
+<div id="redflash"></div>
 
 <div id="jumpscare" class="ov">
   <div class="face">
@@ -90,8 +94,8 @@ button:active{transform:scale(.96)}
 <div id="start" class="ov show">
   <h1>НЕ СМОТРИ В ОКНО 2<br>ПОБЕГ ИЗ ЛЕСА</h1>
   <p>Джойстик слева — идти, свайп справа — смотреть. Кнопка справа — бег (следи за шкалой сил). Подойди к двери — она откроется сама.</p>
-  <p><span class="end">Концовка 1 — РАССВЕТ:</span> не выходи из дома и переживи две ночи. Ночью монстр придёт к окну — <b>не смотри на него</b>. Днём он слепнет — пережди.</p>
-  <p><span class="end">Концовка 2 — ПОБЕГ:</span> открывается, когда ты вышел из дома. Ночью добеги до края леса, за туманную стену. Днём лес не выпустит.</p>
+  <p><span class="end">Концовка 1 — РАССВЕТ:</span> не выходи из дома и переживи две ночи. В доме монстр за тобой НЕ гонится — он придёт к окну и будет смотреть. <b>Не смотри на него в ответ</b>. Днём он слепнет.</p>
+  <p><span class="end">Концовка 2 — ПОБЕГ:</span> выйди из дома и ночью добеги до края леса, за туманную стену. Снаружи монстр бежит за тобой — не дай себя поймать.</p>
   <p class="small" id="startcnt"></p>
   <button onclick="beginGame()">НАЧАТЬ НОЧЬ</button>
 </div>
@@ -102,8 +106,10 @@ button:active{transform:scale(.96)}
 const $=id=>document.getElementById(id);
 let renderer,scene,camera,amb,moon,sun,clock;
 let state='menu',tGame=0,gaze=0,stareWait=0,hbT=0,hintT=0,mFreeze=0;
+let catchT=0,catchRoared=false,catchFromX=0,catchFromZ=0;
 let deaths=parseInt(localStorage.getItem('nsvo2_deaths')||'0',10);
-const player={pos:new THREE.Vector3(0,0,0),yaw:0,pitch:0,stamina:150,exh:false,sprint:false};
+// спавн игрока: у окна, подальше от двери
+const player={pos:new THREE.Vector3(0,0,-2.2),yaw:0,pitch:0,stamina:150,exh:false,sprint:false};
 const keys={};
 const joy={id:null,bx:0,by:0,dx:0,dy:0};
 const camT={id:null,x:0,y:0};
@@ -167,7 +173,7 @@ function buildHouse(){
   addWall(-1.1,1.1,-4.15,-3.85,0,0.9,wood);        // под окном
   addWall(-4,-0.8,3.85,4.15,0,3,wood);             // юг слева от двери
   addWall(0.8,4,3.85,4.15,0,3,wood);               // юг справа от двери
-  addWall(-0.8,0.8,3.85,4.15,2.4,3,wood,false);    // над дверью — БЕЗ коллизии, чтобы можно было выйти
+  addWall(-0.8,0.8,3.85,4.15,2.4,3,wood,false);    // над дверью — без коллизии
   addWall(-4.15,-3.85,-4,4,0,3,wood);              // запад
   addWall(3.85,4.15,-4,4,0,3,wood);                // восток
   walls.push({x1:-1.1,x2:1.1,z1:-4.15,z2:-3.85});  // невидимая коллизия окна
@@ -286,6 +292,7 @@ function bindInput(){
   const cv=renderer.domElement;
   cv.addEventListener('touchstart',e=>{
     e.preventDefault();
+    if(state!=='play')return;
     for(const t of e.changedTouches){
       if(t.clientX<innerWidth*0.45&&joy.id===null){
         joy.id=t.identifier;joy.bx=t.clientX;joy.by=t.clientY;joy.dx=joy.dy=0;
@@ -298,6 +305,7 @@ function bindInput(){
   },{passive:false});
   cv.addEventListener('touchmove',e=>{
     e.preventDefault();
+    if(state!=='play')return;
     for(const t of e.changedTouches){
       if(t.identifier===joy.id){
         joy.dx=Math.max(-1,Math.min(1,(t.clientX-joy.bx)/50));
@@ -364,34 +372,96 @@ function collide(p,rad){
 
 // ---------- ИГРОВЫЕ СОБЫТИЯ ----------
 function spawnBehind(){
-  // монстр появляется далеко позади игрока — 15 метров, а не рядом
   const f=new THREE.Vector3(-Math.sin(player.yaw),0,-Math.cos(player.yaw));
   mPos.copy(player.pos).addScaledVector(f,-15);
-  // если оказался слишком близко к игроку или внутри дома — относим наружу
   if(mPos.distanceTo(player.pos)<9)mPos.copy(player.pos).addScaledVector(f,-9);
   if(Math.abs(mPos.x)<5.5&&Math.abs(mPos.z)<5.5)mPos.set(0,0,-14);
-  // не даём заспавниться за пределами леса
   const r=Math.hypot(mPos.x,mPos.z);
   if(r>55){const k=55/r;mPos.x*=k;mPos.z*=k;}
   mState='hunt';monster.visible=true;
-  mFreeze=2.5; // форы игроку: 2.5 секунды монстр стоит на месте
+  monster.scale.setScalar(1.15);
+  mFreeze=2.5;
 }
 function flash(id,ms){const el=$(id);el.classList.add('show');setTimeout(()=>el.classList.remove('show'),ms);}
 function showHint(text){$('hint').firstElementChild.textContent=text;hintT=3;}
-function jumpscare(){
+
+// ---------- СЦЕНА ПОИМКИ: разворот -> разбег -> ПРЫЖОК -> поедание ----------
+function startCatch(){
   if(state!=='play')return;
-  state='jump';
+  state='catch';
+  catchT=0;catchRoared=false;
+  catchFromX=mPos.x;catchFromZ=mPos.z;
   $('warning').classList.remove('show');
-  $('jumpscare').classList.add('show');
-  roar();
-  setTimeout(()=>{
-    deaths++;localStorage.setItem('nsvo2_deaths',deaths);
-    $('jumpscare').classList.remove('show');
-    $('deathinfo').textContent='Монстр добрался до тебя. В следующий раз будь осторожнее.';
-    $('deathcnt').textContent='Смертей: '+deaths;
-    $('death').classList.add('show');
-    state='dead';
-  },2200);
+  $('near').style.display='none';
+  $('daymsg').style.display='none';
+  $('hint').style.display='none';
+  $('joy').style.display='none';joy.id=null;joy.dx=joy.dy=0;
+  glass.visible=false; // стекло разлетается
+  monster.visible=true;
+  mState='kill';
+  monster.scale.setScalar(1.15);
+  thump(0.8);
+}
+function catchUpdate(dt){
+  catchT+=dt;
+  const dx=mPos.x-player.pos.x,dz=mPos.z-player.pos.z;
+  const dist0=Math.max(0.001,Math.hypot(dx,dz));
+
+  // --- фаза 1 (0..1.0с): камера разворачивается, монстр несётся на игрока ---
+  if(catchT<1.0){
+    const yawT=Math.atan2(-dx,-dz);
+    let dy=yawT-player.yaw;
+    while(dy>Math.PI)dy-=Math.PI*2;
+    while(dy<-Math.PI)dy+=Math.PI*2;
+    player.yaw+=dy*Math.min(1,dt*12);
+    player.pitch+=(-0.15-player.pitch)*Math.min(1,dt*8);
+    const step=Math.min(9*dt,Math.max(0,dist0-1.1)); // рывок, останавливается в метре
+    if(step>0){mPos.x-=dx/dist0*step;mPos.z-=dz/dist0*step;}
+    monster.position.copy(mPos);
+    monster.lookAt(player.pos.x,0.6,player.pos.z);
+    eyeMat.color.setHex(0xff2222);
+    mLight.intensity=1.5;
+    $('redflash').classList.add('on');
+    hbT-=dt;
+    if(hbT<=0){hbT=0.22;thump(0.6);}
+  }
+  // --- фаза 2 (1.0..1.65с): ПРЫЖОК по дуге прямо в камеру ---
+  else if(catchT<1.65){
+    const t=Math.min(1,(catchT-1.0)/0.65);
+    const tx=player.pos.x+dx/dist0*0.1,tz=player.pos.z+dz/dist0*0.1;
+    mPos.x=catchFromX+(tx-catchFromX)*t;
+    mPos.z=catchFromZ+(tz-catchFromZ)*t;
+    const y=Math.sin(t*Math.PI)*2.4; // дуга прыжка
+    monster.position.set(mPos.x,y,mPos.z);
+    monster.scale.setScalar(1.15+t*2.6); // наливается в размерах
+    monster.lookAt(player.pos.x,1.6+y,player.pos.z);
+    player.pitch+=(0.9-player.pitch)*Math.min(1,dt*9); // камера задирается вверх
+  }
+  // --- фаза 3 (1.65с..4.3с): пасть на весь экран, жуёт ---
+  else{
+    if(!catchRoared){
+      catchRoared=true;
+      roar();
+      $('jumpscare').classList.add('show');
+      const fl=$('redflash');fl.classList.remove('on');fl.style.background='rgba(150,0,0,.55)';fl.style.display='block';
+    }
+    const k=Math.min(1,(catchT-1.65)/0.7);
+    const face=$('jumpscare').querySelector('.face');
+    face.style.transform='scale('+(1+k*0.45)+')';
+    if(catchT>=4.3){
+      $('jumpscare').classList.remove('show');
+      $('jumpscare').querySelector('.face').style.transform='';
+      const fl=$('redflash');fl.classList.remove('on');fl.style.display='none';fl.style.background='';
+      deaths++;localStorage.setItem('nsvo2_deaths',deaths);
+      $('deathinfo').textContent='Монстр настиг тебя и сожрал. В следующий раз будь осторожнее.';
+      $('deathcnt').textContent='Смертей: '+deaths;
+      $('death').classList.add('show');
+      state='dead';
+      return;
+    }
+  }
+  camera.position.set(player.pos.x,1.6,player.pos.z);
+  camera.rotation.set(player.pitch,player.yaw,0);
 }
 function win(title,text){
   if(state!=='play')return;
@@ -399,6 +469,7 @@ function win(title,text){
   chime();
   $('clock').style.display='none';$('stam').style.display='none';$('sprint').style.display='none';
   $('near').style.display='none';$('daymsg').style.display='none';$('warning').classList.remove('show');
+  $('redflash').classList.remove('on');$('redflash').style.display='none';
   $('wintitle').textContent=title;$('wintext').textContent=text;
   $('wincnt').textContent='Смертей: '+deaths;
   $('win').classList.add('show');
@@ -406,12 +477,14 @@ function win(title,text){
 function beginGame(){audioInit();$('start').classList.remove('show');startRun();}
 function startRun(){
   tGame=0;gaze=0;stareWait=0;hintT=0;mFreeze=0;
+  catchT=0;catchRoared=false;
   runDone=false;night2Done=false;everOutside=false;
-  mState='idle';mPos.set(0,0,-9);monster.visible=false;glass.visible=true;
+  mState='idle';mPos.set(0,0,-9);monster.visible=false;monster.scale.setScalar(1.15);glass.visible=true;
   doorOpen=0;doorG.rotation.y=0;
-  player.pos.set(0,0,0);player.yaw=0;player.pitch=0; // спавн в центре дома, лицом к окну — дверь сзади далеко
+  player.pos.set(0,0,-2.2);player.yaw=0;player.pitch=0;
   player.stamina=STAM_MAX;player.exh=false;player.sprint=false;
   ['death','win','begi','warning'].forEach(i=>$(i).classList.remove('show'));
+  $('redflash').classList.remove('on');$('redflash').style.display='none';$('redflash').style.background='';
   $('clock').style.display='block';$('stam').style.display='block';
   $('sprint').style.display='flex';$('hint').style.display='none';
   state='play';clock.getDelta();
@@ -423,6 +496,7 @@ function loop(){
   requestAnimationFrame(loop);
   const dt=Math.min(clock.getDelta(),0.05);
   if(state==='play'){tGame+=dt;update(dt);}
+  else if(state==='catch'){catchUpdate(dt);}
   renderer.render(scene,camera);
 }
 
@@ -440,8 +514,8 @@ function update(dt){
   if(il>1){ix/=il;iz/=il;}
   const moving=il>0.05;
   const sprint=(player.sprint)&&moving&&!player.exh&&player.stamina>0;
-  if(sprint)player.stamina=Math.max(0,player.stamina-15*dt);   // бегаешь дольше: 10 секунд спринта
-  else player.stamina=Math.min(STAM_MAX,player.stamina+16*dt); // и быстрее восстанавливается
+  if(sprint)player.stamina=Math.max(0,player.stamina-15*dt);
+  else player.stamina=Math.min(STAM_MAX,player.stamina+16*dt);
   if(player.stamina<=0)player.exh=true;
   if(player.exh&&player.stamina>40)player.exh=false;
   const sp=sprint?4.7:2.2;
@@ -493,37 +567,31 @@ function update(dt){
     spawnBehind();flash('begi',3000);
   }
 
-  // --- монстр ---
+  // --- МОНСТР ---
   const inside=Math.abs(player.pos.x)<4.05&&Math.abs(player.pos.z)<4.05;
   const doorBlocked=doorOpen<0.7;
   const mInside=Math.abs(mPos.x)<4.05&&Math.abs(mPos.z)<4.05;
   let faceTarget=player.pos;
 
-  if(mFreeze>0)mFreeze-=dt; // фора после спавна
+  if(mFreeze>0)mFreeze-=dt;
 
   if(mState==='hunt'){
-    const msp=night?2.9:0.9; // ночью монстр медленнее — есть шанс убежать
+    // ПОКА ИГРОК В ДОМЕ И ДВЕРЬ ЗАКРЫТА — монстр НЕ гонится: идёт к окну
+    const goWindow=inside&&doorBlocked&&!mInside;
+    const msp=night?2.9:0.9;
     if(mFreeze<=0){
-      let target=player.pos;
-      // пока игрок сидит в доме с закрытой дверью — монстр идёт к окну
-      if(inside&&doorBlocked&&!mInside)target=WINDOW_SPOT;
+      const target=goWindow?WINDOW_SPOT:player.pos;
       const dir=new THREE.Vector3(target.x-mPos.x,0,target.z-mPos.z);
       const len=dir.length();
       if(len>0.05){dir.divideScalar(len);mPos.addScaledVector(dir,Math.min(msp*dt,len));}
-      if(inside&&doorBlocked&&!mInside&&mPos.distanceTo(WINDOW_SPOT)<0.9){mState='stare';stareWait=0;}
-      if(mPos.distanceTo(player.pos)<1.3)jumpscare();
+      if(goWindow&&mPos.distanceTo(WINDOW_SPOT)<0.9){mState='stare';stareWait=0;}
+      // схватить может ТОЛЬКО снаружи или если сам уже в доме
+      if((!inside||mInside)&&mPos.distanceTo(player.pos)<1.6)startCatch();
     }
   }else if(mState==='stare'){
-    if(!inside||!doorBlocked||!night)mState='hunt'; // дверь открыли или вышел — он в дело
-    else{
-      stareWait+=dt;
-      if(stareWait>25){ // терпение кончилось — монстр вламывается
-        glass.visible=false;mState='hunt';
-        mPos.set(0,0,-2.8);
-        thump(0.9);setTimeout(()=>thump(0.9),300);
-        showHint('ОН ВРВАЛСЯ В ДОМ!');
-      }
-    }
+    // смотрит в окно. Ушёл из дома или рассвело — возвращается в погоню/уходит
+    if(!inside||!doorBlocked||!night)mState='hunt';
+    else stareWait+=dt;
     faceTarget=WINDOW_C;
   }else if(mState==='flee'){
     const away=new THREE.Vector3(mPos.x-player.pos.x,0,mPos.z-player.pos.z);
@@ -532,7 +600,7 @@ function update(dt){
     faceTarget=new THREE.Vector3(mPos.x+away.x,0,mPos.z+away.z);
     if(night)mState='hunt';
   }
-  if(monster.visible){
+  if(monster.visible&&mState!=='kill'){
     monster.position.copy(mPos);
     monster.lookAt(faceTarget.x,0.5,faceTarget.z);
     const staring=mState==='stare';
@@ -551,7 +619,7 @@ function update(dt){
       gaze=Math.max(0,gaze-dt*2);
       if(gaze<=0.03)$('warning').classList.remove('show');
     }
-    if(gaze>1.5)jumpscare();
+    if(gaze>1.5)startCatch(); // посмотрел — монстр прыгает в окно и ест
   }else{
     gaze=0;
     $('warning').classList.remove('show');
@@ -561,15 +629,15 @@ function update(dt){
   camera.position.set(player.pos.x,1.6,player.pos.z);
   camera.rotation.set(player.pitch,player.yaw,0);
 
-  // --- сердце и "ОН РЯДОМ" ---
-  if(monster.visible&&night){
+  // --- сердце и "ОН РЯДОМ" (только когда монстр реально гонится) ---
+  if(monster.visible&&night&&mState==='hunt'&&!mInside){
     const d=mPos.distanceTo(player.pos);
     hbT-=dt;
     if(hbT<=0){
       hbT=Math.max(0.32,d/9);
       if(d<30)thump(0.25+0.5*(1-Math.min(1,d/30)));
     }
-    $('near').style.display=(mState==='hunt'&&d<10)?'block':'none';
+    $('near').style.display=d<10?'block':'none';
   }else $('near').style.display='none';
 
   // --- подсказка ---
