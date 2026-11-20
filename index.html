@@ -119,4 +119,223 @@ const texTable = makeTex('#5a3a20', function(g){
 });
 const texChair = makeTex('#4e3420', function(g){
   g.fillStyle='#5f4126'; g.fillRect(0,0,64,16);
-  g.fillStyle='#3a
+  g.fillStyle='#3a2413'; g.fillRect(24,16,16,48);
+});
+const texWindow = makeTex('#0b1024', function(g){ // ночь за стеклом
+  g.fillStyle='#05070f'; g.fillRect(0,0,64,64);
+  g.fillStyle='#cfd8ff'; g.beginPath(); g.arc(48,14,7,0,7); g.fill();
+  for(let i=0;i<12;i++){ g.fillStyle = Math.random()>.5 ? '#ffffff' : '#8fa3ff';
+    g.fillRect(Math.floor(Math.random()*64), Math.floor(Math.random()*40), 1, 1); }
+  g.fillStyle='#241a12';
+  g.fillRect(0,0,64,4); g.fillRect(0,60,64,4); g.fillRect(0,0,4,64); g.fillRect(60,0,4,64); g.fillRect(30,0,4,64);
+});
+const tex = {1:texWall, 2:texWardrobe, 3:texTable, 4:texChair, 5:texWindow};
+
+function tileAt(x,y){
+  const tx = Math.floor(x/TILE), ty = Math.floor(y/TILE);
+  if(tx<0 || ty<0 || tx>=MAP_W || ty>=MAP_H) return 1;
+  return map[ty][tx];
+}
+function canStand(x,y){
+  const r = 9;
+  return !blocked(x-r,y-r) && !blocked(x+r,y-r) && !blocked(x-r,y+r) && !blocked(x+r,y+r);
+}
+function blocked(x,y){ return tileAt(x,y) !== 0; }
+
+// --- УПРАВЛЕНИЕ ---
+window.addEventListener('keydown', function(e){
+  keys[e.code] = true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].indexOf(e.code) >= 0) e.preventDefault();
+});
+window.addEventListener('keyup', function(e){ keys[e.code] = false; });
+
+document.querySelectorAll('.pad-btn').forEach(function(b){
+  const k = b.dataset.k;
+  const on  = function(e){ e.preventDefault(); keys[k] = true; };
+  const off = function(e){ e.preventDefault(); keys[k] = false; };
+  b.addEventListener('pointerdown', on);
+  b.addEventListener('pointerup', off);
+  b.addEventListener('pointercancel', off);
+  b.addEventListener('pointerleave', off);
+});
+
+// --- ЗВУК ---
+let audioCtx = null;
+function initAudio(){
+  try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+}
+function sound(type){
+  if(!audioCtx) return;
+  try{
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    if(type === 'creak'){
+      o.type='sawtooth'; o.frequency.setValueAtTime(90,t);
+      o.frequency.exponentialRampToValueAtTime(50,t+0.8);
+      g.gain.setValueAtTime(0.05,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.9);
+      o.start(t); o.stop(t+1);
+    } else {
+      o.type='square'; o.frequency.setValueAtTime(600,t);
+      o.frequency.exponentialRampToValueAtTime(80,t+0.5);
+      g.gain.setValueAtTime(0.12,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+      o.start(t); o.stop(t+0.7);
+    }
+  }catch(e){}
+}
+
+function setStatus(t,c){ const s = document.getElementById('status'); s.textContent = t; s.style.color = c; }
+
+// --- ИГРОВАЯ ЛОГИКА ---
+function update(dt){
+  // движение
+  const sp = dt * 0.14;
+  const c = Math.cos(player.dir), s = Math.sin(player.dir);
+  let dx = 0, dy = 0;
+  if(keys.KeyW || keys.ArrowUp){ dx += c*sp; dy += s*sp; }
+  if(keys.KeyS || keys.ArrowDown){ dx -= c*sp; dy -= s*sp; }
+  if(keys.KeyA || keys.ArrowLeft) player.dir -= dt*0.0022;
+  if(keys.KeyD || keys.ArrowRight) player.dir += dt*0.0022;
+  if(dx && canStand(player.x+dx, player.y)) player.x += dx;
+  if(dy && canStand(player.x, player.y+dy)) player.y += dy;
+
+  // часы: 1 реальная секунда = 2 игровые минуты, до 06:00 — 3 реальные минуты
+  const now = performance.now();
+  const elapsed = now - startTime;
+  const gameMin = Math.floor(elapsed/500);
+  const hh = Math.floor(gameMin/60), mm = gameMin % 60;
+  document.getElementById('clock').textContent =
+    String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+  if(elapsed >= 360*500){ winGame(); return; }
+
+  // появление монстра
+  if(!monster.active && !monster.steps && now >= monster.nextAt){
+    monster.steps = true; sound('creak');
+    setTimeout(function(){
+      if(monster.steps){
+        monster.steps = false;
+        monster.active = true;
+        monster.until = performance.now() + 4500;
+        sound('sting');
+      }
+    }, 1400);
+  }
+  if(monster.active && now >= monster.until){
+    monster.active = false; danger = 0;
+    monster.nextAt = now + 12000 + Math.random()*15000;
+  }
+
+  // смотрит ли игрок на окно
+  if(monster.active){
+    const wx = 11.5*TILE, wy = 15.5*TILE;
+    const ddx = wx - player.x, ddy = wy - player.y;
+    const dist = Math.hypot(ddx, ddy);
+    let a = Math.atan2(ddy, ddx) - player.dir;
+    a = ((a + Math.PI) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) - Math.PI;
+    if(Math.abs(a) < FOV/2 && dist < 420){
+      danger += dt;
+      if(danger > 1800){ gameOver(); return; }
+    } else if(danger > 0){
+      danger = Math.max(0, danger - dt*2);
+    }
+  }
+
+  // статус
+  if(monster.steps) setStatus('СЛЫШИШЬ ШАГИ...', '#ffaa00');
+  else if(monster.active && danger > 0) setStatus('ОТВЕРНИСЬ!', '#ff2b2b');
+  else if(monster.active) setStatus('НЕ СМОТРИ В ОКНО', '#ffaa00');
+  else setStatus('БЕЗОПАСНО', '#7CFC00');
+}
+
+function fillCol(x, w, y, h, color){
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w+1, h);
+}
+
+// --- ОТРИСОВКА (лучи, как в Doom) ---
+function draw(){
+  // потолок и пол
+  ctx.fillStyle = '#0a0a12'; ctx.fillRect(0, 0, W, H/2);
+  ctx.fillStyle = '#1c1410'; ctx.fillRect(0, H/2, W, H/2);
+
+  const numCols = Math.ceil(W/2), colW = W/numCols;
+  for(let i=0; i<numCols; i++){
+    const ang = player.dir - FOV/2 + (i+0.5)/numCols*FOV;
+    const stepX = Math.cos(ang)*2, stepY = Math.sin(ang)*2;
+    let rx = player.x, ry = player.y, dist = 0, hit = 0, texX = 0;
+    while(dist < 520){
+      rx += stepX; ry += stepY; dist += 2;
+      const t = tileAt(rx, ry);
+      if(t !== 0){
+        hit = t;
+        const fx = rx % TILE, fy = ry % TILE;
+        texX = (fx < 2 || fx > TILE-2) ? fy : fx;
+        break;
+      }
+    }
+    if(!hit) continue;
+
+    const corr = dist * Math.cos(ang - player.dir);
+    const lineH = Math.min(H*1.2, (H*70) / Math.max(20, corr));
+    const top = H/2 - lineH/2;
+    ctx.drawImage(tex[hit], Math.floor(texX), 0, 1, 64, i*colW, top, colW+1, lineH);
+
+    const sh = Math.min(0.85, corr/520*0.85 + (hit===5 ? 0 : 0.15));
+    ctx.fillStyle = 'rgba(0,0,0,' + sh.toFixed(2) + ')';
+    ctx.fillRect(i*colW, top, colW+1, lineH);
+
+    // силуэт монстра в окне: голова, туловище, руки, глаза
+    if(hit === 5 && monster.active){
+      const rel = texX / TILE;
+      if(rel > 0.32 && rel < 0.68) fillCol(i*colW, colW, top+lineH*0.28, lineH*0.5, '#050005');
+      if(rel > 0.42 && rel < 0.58) fillCol(i*colW, colW, top+lineH*0.12, lineH*0.2, '#070006');
+      if((rel > 0.24 && rel < 0.32) || (rel > 0.68 && rel < 0.76))
+        fillCol(i*colW, colW, top+lineH*0.34, lineH*0.34, '#050004');
+      if((rel > 0.45 && rel < 0.49) || (rel > 0.51 && rel < 0.55))
+        fillCol(i*colW, colW, top+lineH*0.17, lineH*0.03, Math.random() > 0.3 ? '#ff2222' : '#550000');
+    }
+  }
+
+  // мерцание
+  if(Math.random() > 0.97){
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function gameOver(){
+  if(!running) return;
+  running = false;
+  document.getElementById('gameover').style.display = 'flex';
+}
+function winGame(){
+  if(!running) return;
+  running = false;
+  document.getElementById('win').style.display = 'flex';
+}
+
+// --- СТАРТ ---
+function startGame(){
+  document.getElementById('splash').style.display = 'none';
+  document.getElementById('ui').style.display = 'block';
+  running = true;
+  startTime = performance.now();
+  monster.nextAt = performance.now() + 6000;
+  setStatus('БЕЗОПАСНО', '#7CFC00');
+  initAudio();
+}
+document.getElementById('btn-start').addEventListener('click', startGame);
+
+function loop(ts){
+  if(running){
+    const dt = Math.min(50, (ts - lastFrame) || 16);
+    update(dt);
+    draw();
+  }
+  lastFrame = ts;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
