@@ -101,14 +101,15 @@ button:active{transform:scale(.96)}
 'use strict';
 const $=id=>document.getElementById(id);
 let renderer,scene,camera,amb,moon,sun,clock;
-let state='menu',tGame=0,gaze=0,stareWait=0,hbT=0,hintT=0;
+let state='menu',tGame=0,gaze=0,stareWait=0,hbT=0,hintT=0,mFreeze=0;
 let deaths=parseInt(localStorage.getItem('nsvo2_deaths')||'0',10);
-const player={pos:new THREE.Vector3(0,0,2),yaw:Math.PI,pitch:0,stamina:100,exh:false,sprint:false};
+const player={pos:new THREE.Vector3(0,0,0),yaw:0,pitch:0,stamina:150,exh:false,sprint:false};
 const keys={};
 const joy={id:null,bx:0,by:0,dx:0,dy:0};
 const camT={id:null,x:0,y:0};
 let mouseDrag=false,mx0=0,my0=0;
 const NIGHT_LEN=70,DAY_LEN=50,CYCLE=NIGHT_LEN+DAY_LEN,TOTAL=CYCLE+NIGHT_LEN;
+const STAM_MAX=150;
 const WINDOW_C=new THREE.Vector3(0,1.6,-4),WINDOW_SPOT=new THREE.Vector3(0,0,-6.4),DOOR_P=new THREE.Vector3(0,0,4);
 const FOREST_R=62;
 const walls=[],trees=[];
@@ -363,10 +364,17 @@ function collide(p,rad){
 
 // ---------- ИГРОВЫЕ СОБЫТИЯ ----------
 function spawnBehind(){
+  // монстр появляется далеко позади игрока — 15 метров, а не рядом
   const f=new THREE.Vector3(-Math.sin(player.yaw),0,-Math.cos(player.yaw));
-  mPos.copy(player.pos).addScaledVector(f,-7);
-  if(Math.abs(mPos.x)<5&&Math.abs(mPos.z)<5)mPos.set(0,0,-8);
+  mPos.copy(player.pos).addScaledVector(f,-15);
+  // если оказался слишком близко к игроку или внутри дома — относим наружу
+  if(mPos.distanceTo(player.pos)<9)mPos.copy(player.pos).addScaledVector(f,-9);
+  if(Math.abs(mPos.x)<5.5&&Math.abs(mPos.z)<5.5)mPos.set(0,0,-14);
+  // не даём заспавниться за пределами леса
+  const r=Math.hypot(mPos.x,mPos.z);
+  if(r>55){const k=55/r;mPos.x*=k;mPos.z*=k;}
   mState='hunt';monster.visible=true;
+  mFreeze=2.5; // форы игроку: 2.5 секунды монстр стоит на месте
 }
 function flash(id,ms){const el=$(id);el.classList.add('show');setTimeout(()=>el.classList.remove('show'),ms);}
 function showHint(text){$('hint').firstElementChild.textContent=text;hintT=3;}
@@ -397,12 +405,12 @@ function win(title,text){
 }
 function beginGame(){audioInit();$('start').classList.remove('show');startRun();}
 function startRun(){
-  tGame=0;gaze=0;stareWait=0;hintT=0;
+  tGame=0;gaze=0;stareWait=0;hintT=0;mFreeze=0;
   runDone=false;night2Done=false;everOutside=false;
   mState='idle';mPos.set(0,0,-9);monster.visible=false;glass.visible=true;
   doorOpen=0;doorG.rotation.y=0;
-  player.pos.set(0,0,2);player.yaw=Math.PI;player.pitch=0;
-  player.stamina=100;player.exh=false;player.sprint=false;
+  player.pos.set(0,0,0);player.yaw=0;player.pitch=0; // спавн в центре дома, лицом к окну — дверь сзади далеко
+  player.stamina=STAM_MAX;player.exh=false;player.sprint=false;
   ['death','win','begi','warning'].forEach(i=>$(i).classList.remove('show'));
   $('clock').style.display='block';$('stam').style.display='block';
   $('sprint').style.display='flex';$('hint').style.display='none';
@@ -432,10 +440,10 @@ function update(dt){
   if(il>1){ix/=il;iz/=il;}
   const moving=il>0.05;
   const sprint=(player.sprint)&&moving&&!player.exh&&player.stamina>0;
-  if(sprint)player.stamina=Math.max(0,player.stamina-25*dt);
-  else player.stamina=Math.min(100,player.stamina+12*dt);
+  if(sprint)player.stamina=Math.max(0,player.stamina-15*dt);   // бегаешь дольше: 10 секунд спринта
+  else player.stamina=Math.min(STAM_MAX,player.stamina+16*dt); // и быстрее восстанавливается
   if(player.stamina<=0)player.exh=true;
-  if(player.exh&&player.stamina>30)player.exh=false;
+  if(player.exh&&player.stamina>40)player.exh=false;
   const sp=sprint?4.7:2.2;
   player.pos.x+=(f.x*(-iz)+r.x*ix)*sp*dt;
   player.pos.z+=(f.z*(-iz)+r.z*ix)*sp*dt;
@@ -461,7 +469,7 @@ function update(dt){
   doorOpen+=((dDoor<3?1:0)-doorOpen)*Math.min(1,dt*5);
   doorG.rotation.y=-doorOpen*1.9;
 
-  // --- день и ночь (день теперь 50 секунд) ---
+  // --- день и ночь ---
   let dayF=0;
   if(phase>=67&&phase<73)dayF=(phase-67)/6;
   else if(phase>=73&&phase<115)dayF=1;
@@ -491,16 +499,20 @@ function update(dt){
   const mInside=Math.abs(mPos.x)<4.05&&Math.abs(mPos.z)<4.05;
   let faceTarget=player.pos;
 
+  if(mFreeze>0)mFreeze-=dt; // фора после спавна
+
   if(mState==='hunt'){
-    const msp=night?3.3:0.9;
-    let target=player.pos;
-    // пока игрок сидит в доме с закрытой дверью — монстр идёт к окну
-    if(inside&&doorBlocked&&!mInside)target=WINDOW_SPOT;
-    const dir=new THREE.Vector3(target.x-mPos.x,0,target.z-mPos.z);
-    const len=dir.length();
-    if(len>0.05){dir.divideScalar(len);mPos.addScaledVector(dir,Math.min(msp*dt,len));}
-    if(inside&&doorBlocked&&!mInside&&mPos.distanceTo(WINDOW_SPOT)<0.9){mState='stare';stareWait=0;}
-    if(mPos.distanceTo(player.pos)<1.3)jumpscare();
+    const msp=night?2.9:0.9; // ночью монстр медленнее — есть шанс убежать
+    if(mFreeze<=0){
+      let target=player.pos;
+      // пока игрок сидит в доме с закрытой дверью — монстр идёт к окну
+      if(inside&&doorBlocked&&!mInside)target=WINDOW_SPOT;
+      const dir=new THREE.Vector3(target.x-mPos.x,0,target.z-mPos.z);
+      const len=dir.length();
+      if(len>0.05){dir.divideScalar(len);mPos.addScaledVector(dir,Math.min(msp*dt,len));}
+      if(inside&&doorBlocked&&!mInside&&mPos.distanceTo(WINDOW_SPOT)<0.9){mState='stare';stareWait=0;}
+      if(mPos.distanceTo(player.pos)<1.3)jumpscare();
+    }
   }else if(mState==='stare'){
     if(!inside||!doorBlocked||!night)mState='hunt'; // дверь открыли или вышел — он в дело
     else{
@@ -579,7 +591,7 @@ function update(dt){
   }
 
   // --- выносливость ---
-  $('stamfill').style.width=player.stamina+'%';
+  $('stamfill').style.width=(player.stamina/STAM_MAX*100)+'%';
   $('stamfill').style.background=player.exh?'#c62828':'#4caf50';
 
   // --- концовки ---
