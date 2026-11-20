@@ -31,6 +31,13 @@
   #win h2{color:#7CFC00;font-size:3rem;text-shadow:0 0 30px #0f0;}
   .again{margin-top:24px;padding:14px 36px;font-size:1.2rem;background:#000;color:#fff;
     border:2px solid #fff;cursor:pointer;}
+  #jumpscare{display:none;position:fixed;inset:0;z-index:70;background:#000;}
+  #js-face{position:absolute;inset:0;width:100%;height:100%;}
+  .shake{animation:shake .09s infinite;}
+  @keyframes shake{0%{transform:translate(0,0)}25%{transform:translate(-14px,8px)}
+    50%{transform:translate(12px,-10px)}75%{transform:translate(-10px,-6px)}100%{transform:translate(0,0)}}
+  .flash{animation:flash .12s infinite;}
+  @keyframes flash{0%,100%{filter:none}50%{filter:invert(1) brightness(1.6)}}
   @media (pointer:coarse){#pad{display:grid}}
 </style>
 </head>
@@ -54,30 +61,32 @@
   </div>
 </div>
 
+<div id="jumpscare"><canvas id="js-face"></canvas></div>
 <div id="gameover"><h2>ТЫ ПОСМОТРЕЛ В ОКНО</h2><button class="again" onclick="location.reload()">Ещё раз</button></div>
 <div id="win"><h2>РАССВЕТ. ТЫ ВЫЖИЛ</h2><button class="again" onclick="location.reload()">Сыграть снова</button></div>
 
 <script>
 'use strict';
 
-// --- КОМНАТА (компактнее: 12x9 вместо 16x16) ---
-// 0 пусто, 1 стена, 2 шкаф, 3 стол, 4 стул, 5 окно
+// --- КОМНАТА ---
+// 0 пусто, 1 стена, 2 шкаф, 3 стол, 4 стул, 5 окно, 6 телевизор
 const TILE = 64;
 const map = [
  [1,1,1,1,1,1,1,1,1,1,1,1],
  [1,0,2,2,0,0,0,0,4,0,0,1],
  [1,0,2,2,0,0,3,3,0,0,0,1],
  [1,0,0,0,0,0,3,3,0,0,0,1],
- [1,0,0,0,0,0,0,0,0,2,2,1],
+ [1,6,0,0,0,0,0,0,0,2,2,1],
  [1,0,4,0,0,0,0,0,0,2,2,1],
  [1,0,0,0,0,3,3,0,0,0,0,1],
  [1,0,0,0,0,0,0,0,0,0,0,1],
  [1,1,1,1,1,1,5,5,5,1,1,1]
 ];
 const MAP_H = map.length, MAP_W = map[0].length;
+const WIN_TX0 = 6; // окно занимает колонки 6..8 нижней стены
 
 const player = { x: 4.5*TILE, y: 6.5*TILE, dir: Math.PI/2 };
-const FOV = Math.PI*0.42; // шире поле зрения (было PI/3, т.е. 60°)
+const FOV = Math.PI*0.42;
 
 let running = false, startTime = 0, lastFrame = 0, danger = 0;
 const keys = {};
@@ -90,7 +99,7 @@ function resize(){ W = cv.width = window.innerWidth; H = cv.height = window.inne
 window.addEventListener('resize', resize);
 resize();
 
-// --- ТЕКСТУРЫ (генерируются в памяти, ничего качать не надо) ---
+// --- ТЕКСТУРЫ ---
 function makeTex(base, painter){
   const c = document.createElement('canvas'); c.width = 64; c.height = 64;
   const g = c.getContext('2d');
@@ -98,7 +107,31 @@ function makeTex(base, painter){
   painter(g);
   return c;
 }
-const texWall = makeTex('#372c40', function(g){ // обои в полоску
+function winFrame(g){ // рама окна
+  g.fillStyle='#241a12';
+  g.fillRect(0,0,64,4); g.fillRect(0,60,64,4); g.fillRect(0,0,4,64); g.fillRect(60,0,4,64);
+}
+const texWinL = makeTex('#0b1024', function(g){ // левая часть окна — без луны
+  g.fillStyle='#05070f'; g.fillRect(4,4,56,56);
+  for(let i=0;i<8;i++){ g.fillStyle = Math.random()>.5 ? '#ffffff' : '#8fa3ff';
+    g.fillRect(6+Math.floor(Math.random()*52), 6+Math.floor(Math.random()*36), 1, 1); }
+  winFrame(g); g.fillRect(60,0,4,64);
+});
+const texWinM = makeTex('#0b1024', function(g){ // центр — луна и звёзды
+  g.fillStyle='#05070f'; g.fillRect(4,4,56,56);
+  g.fillStyle='#cfd8ff'; g.beginPath(); g.arc(32,18,9,0,7); g.fill();
+  for(let i=0;i<12;i++){ g.fillStyle = Math.random()>.5 ? '#ffffff' : '#8fa3ff';
+    g.fillRect(6+Math.floor(Math.random()*52), 6+Math.floor(Math.random()*36), 1, 1); }
+  winFrame(g);
+});
+const texWinR = makeTex('#0b1024', function(g){ // правая часть окна — без луны
+  g.fillStyle='#05070f'; g.fillRect(4,4,56,56);
+  for(let i=0;i<8;i++){ g.fillStyle = Math.random()>.5 ? '#ffffff' : '#8fa3ff';
+    g.fillRect(6+Math.floor(Math.random()*52), 6+Math.floor(Math.random()*36), 1, 1); }
+  winFrame(g);
+});
+
+const texWall = makeTex('#372c40', function(g){
   for(let i=0;i<64;i+=8){ g.fillStyle = ((i/8)%2) ? '#42364a' : '#372c40'; g.fillRect(i,0,8,64); }
   g.fillStyle='rgba(0,0,0,.25)'; g.fillRect(0,56,64,8);
 });
@@ -114,15 +147,24 @@ const texChair = makeTex('#4e3420', function(g){
   g.fillStyle='#5f4126'; g.fillRect(0,0,64,16);
   g.fillStyle='#3a2413'; g.fillRect(24,16,16,48);
 });
-const texWindow = makeTex('#0b1024', function(g){ // ночь за стеклом
-  g.fillStyle='#05070f'; g.fillRect(0,0,64,64);
-  g.fillStyle='#cfd8ff'; g.beginPath(); g.arc(48,14,7,0,7); g.fill();
-  for(let i=0;i<12;i++){ g.fillStyle = Math.random()>.5 ? '#ffffff' : '#8fa3ff';
-    g.fillRect(Math.floor(Math.random()*64), Math.floor(Math.random()*40), 1, 1); }
-  g.fillStyle='#241a12';
-  g.fillRect(0,0,64,4); g.fillRect(0,60,64,4); g.fillRect(0,0,4,64); g.fillRect(60,0,4,64); g.fillRect(30,0,4,64);
-});
-const tex = {1:texWall, 2:texWardrobe, 3:texTable, 4:texChair, 5:texWindow};
+
+// телевизор: 8 кадров мерцания, выбираются случайно каждый кадр
+const tvFrames = [];
+for(let f=0; f<8; f++){
+  tvFrames.push(makeTex('#111111', function(g){
+    g.fillStyle='#000'; g.fillRect(6,6,52,44);
+    const b = 0.15 + Math.random()*0.85;
+    g.fillStyle = 'rgba(160,200,255,' + b.toFixed(2) + ')';
+    g.fillRect(9,9,46,38);
+    // «помехи» — случайные светлые полосы
+    for(let i=0;i<6;i++){
+      g.fillStyle = Math.random()>.5 ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.5)';
+      g.fillRect(9, 9+Math.random()*38, 46, 2+Math.random()*3);
+    }
+    g.fillStyle='#222'; g.fillRect(24,52,16,8); // ножка
+  }));
+}
+const tex = {1:texWall, 2:texWardrobe, 3:texTable, 4:texChair, 6:tvFrames[0]};
 
 function tileAt(x,y){
   const tx = Math.floor(x/TILE), ty = Math.floor(y/TILE);
@@ -153,14 +195,46 @@ document.querySelectorAll('.pad-btn').forEach(function(b){
 });
 
 // --- ЗВУК ---
-let audioCtx = null;
+let audioCtx = null, tvNoise = null, tvGain = null;
 function initAudio(){
   try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+  if(audioCtx){
+    try{
+      // фоновые помехи телевизора
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate*2, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
+      tvNoise = audioCtx.createBufferSource();
+      tvNoise.buffer = buf; tvNoise.loop = true;
+      tvGain = audioCtx.createGain(); tvGain.gain.value = 0.012;
+      tvNoise.connect(tvGain); tvGain.connect(audioCtx.destination);
+      tvNoise.start();
+      // помехи то громче, то тише — как «дышащий» телевизор
+      setInterval(function(){
+        if(!audioCtx) return;
+        tvGain.gain.setTargetAtTime(0.006 + Math.random()*0.02, audioCtx.currentTime, 0.3);
+      }, 900);
+    }catch(e){}
+  }
 }
 function sound(type){
   if(!audioCtx) return;
   try{
     const t = audioCtx.currentTime;
+    if(type === 'scream'){ // скример: белый шум + визг
+      const buf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+      const src = audioCtx.createBufferSource(); src.buffer = buf;
+      const g = audioCtx.createGain(); g.gain.setValueAtTime(0.7,t);
+      src.connect(g); g.connect(audioCtx.destination); src.start(t);
+      const o = audioCtx.createOscillator(), og = audioCtx.createGain();
+      o.type='sawtooth'; o.frequency.setValueAtTime(1400,t);
+      o.frequency.exponentialRampToValueAtTime(120,t+0.9);
+      og.gain.setValueAtTime(0.5,t); og.gain.exponentialRampToValueAtTime(0.001,t+1);
+      o.connect(og); og.connect(audioCtx.destination); o.start(t); o.stop(t+1);
+      return;
+    }
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.connect(g); g.connect(audioCtx.destination);
     if(type === 'creak'){
@@ -177,11 +251,72 @@ function sound(type){
   }catch(e){}
 }
 
+// жуткий голос «не смотри в окно»
+function monsterVoice(){
+  try{
+    if(!window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance('не смотри в окно');
+    u.lang = 'ru-RU';
+    u.pitch = 0.1;   // максимально низкий голос
+    u.rate = 0.65;   // медленно и тягуче
+    u.volume = 1;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
 function setStatus(t,c){ const s = document.getElementById('status'); s.textContent = t; s.style.color = c; }
+
+// --- СКРИМЕР ---
+const jsCv = document.getElementById('js-face');
+function drawScareFace(){
+  jsCv.width = window.innerWidth; jsCv.height = window.innerHeight;
+  const g = jsCv.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0,0,jsCv.width,jsCv.height);
+  const cx = jsCv.width/2, cy = jsCv.height/2, R = Math.min(jsCv.width,jsCv.height)*0.3;
+  // бледное лицо
+  g.fillStyle = '#cfc4b0';
+  g.beginPath(); g.ellipse(cx, cy, R*0.8, R, 0, 0, 7); g.fill();
+  // провалы глаз
+  g.fillStyle = '#000';
+  g.beginPath(); g.ellipse(cx-R*0.35, cy-R*0.25, R*0.28, R*0.34, 0, 0, 7); g.fill();
+  g.beginPath(); g.ellipse(cx+R*0.35, cy-R*0.25, R*0.28, R*0.34, 0, 0, 7); g.fill();
+  // маленькие красные зрачки
+  g.fillStyle = '#ff0000';
+  g.beginPath(); g.arc(cx-R*0.35, cy-R*0.22, R*0.06, 0, 7); g.fill();
+  g.beginPath(); g.arc(cx+R*0.35, cy-R*0.22, R*0.06, 0, 7); g.fill();
+  // разинутый рот с зубами
+  g.fillStyle = '#120000';
+  g.beginPath(); g.ellipse(cx, cy+R*0.45, R*0.4, R*0.3, 0, 0, 7); g.fill();
+  g.fillStyle = '#e8e0d0';
+  for(let i=0;i<6;i++){
+    const tx0 = cx - R*0.36 + i*R*0.145;
+    g.beginPath(); g.moveTo(tx0, cy+R*0.28); g.lineTo(tx0+R*0.11, cy+R*0.28);
+    g.lineTo(tx0+R*0.055, cy+R*0.45); g.closePath(); g.fill();
+  }
+  // трещины на лице
+  g.strokeStyle = 'rgba(60,40,30,.6)'; g.lineWidth = 2;
+  for(let i=0;i<8;i++){
+    g.beginPath();
+    const sx = cx + (Math.random()-0.5)*R*1.4, sy = cy + (Math.random()-0.5)*R*1.6;
+    g.moveTo(sx, sy);
+    g.lineTo(sx + (Math.random()-0.5)*R*0.4, sy + (Math.random()-0.5)*R*0.4);
+    g.stroke();
+  }
+}
+function jumpscare(){
+  drawScareFace();
+  const js = document.getElementById('jumpscare');
+  js.style.display = 'block';
+  js.classList.add('shake','flash');
+  sound('scream');
+  setTimeout(function(){
+    js.style.display = 'none';
+    document.getElementById('gameover').style.display = 'flex';
+  }, 1200);
+}
 
 // --- ИГРОВАЯ ЛОГИКА ---
 function update(dt){
-  // движение
   const sp = dt * 0.14;
   const c = Math.cos(player.dir), s = Math.sin(player.dir);
   let dx = 0, dy = 0;
@@ -192,7 +327,6 @@ function update(dt){
   if(dx && canStand(player.x+dx, player.y)) player.x += dx;
   if(dy && canStand(player.x, player.y+dy)) player.y += dy;
 
-  // часы: 1 реальная секунда = 2 игровые минуты, до 06:00 — 3 реальные минуты
   const now = performance.now();
   const elapsed = now - startTime;
   const gameMin = Math.floor(elapsed/500);
@@ -201,7 +335,6 @@ function update(dt){
     String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
   if(elapsed >= 360*500){ winGame(); return; }
 
-  // появление монстра
   if(!monster.active && !monster.steps && now >= monster.nextAt){
     monster.steps = true; sound('creak');
     setTimeout(function(){
@@ -210,6 +343,8 @@ function update(dt){
         monster.active = true;
         monster.until = performance.now() + 4500;
         sound('sting');
+        monsterVoice(); // «не смотри в окно...»
+        setTimeout(function(){ if(monster.active) monsterVoice(); }, 2200);
       }
     }, 1400);
   }
@@ -218,7 +353,6 @@ function update(dt){
     monster.nextAt = now + 12000 + Math.random()*15000;
   }
 
-  // смотрит ли игрок на окно (окно теперь в точке 7.5, 8.5)
   if(monster.active){
     const wx = 7.5*TILE, wy = 8.5*TILE;
     const ddx = wx - player.x, ddy = wy - player.y;
@@ -233,7 +367,6 @@ function update(dt){
     }
   }
 
-  // статус
   if(monster.steps) setStatus('СЛЫШИШЬ ШАГИ...', '#ffaa00');
   else if(monster.active && danger > 0) setStatus('ОТВЕРНИСЬ!', '#ff2b2b');
   else if(monster.active) setStatus('НЕ СМОТРИ В ОКНО', '#ffaa00');
@@ -245,18 +378,19 @@ function fillCol(x, w, y, h, color){
   ctx.fillRect(x, y, w+1, h);
 }
 
-// --- ОТРИСОВКА (лучи, как в Doom) ---
+// --- ОТРИСОВКА ---
 function draw(){
-  // потолок и пол
   ctx.fillStyle = '#0a0a12'; ctx.fillRect(0, 0, W, H/2);
   ctx.fillStyle = '#1c1410'; ctx.fillRect(0, H/2, W, H/2);
 
   const numCols = Math.ceil(W/2), colW = W/numCols;
+  const curTvFrame = tvFrames[Math.floor(Math.random()*tvFrames.length)];
+
   for(let i=0; i<numCols; i++){
     const ang = player.dir - FOV/2 + (i+0.5)/numCols*FOV;
     const stepX = Math.cos(ang)*2, stepY = Math.sin(ang)*2;
     let rx = player.x, ry = player.y, dist = 0, hit = 0, texX = 0;
-    while(dist < 900){ // дальность видимости увеличена: 900 вместо 520
+    while(dist < 900){
       rx += stepX; ry += stepY; dist += 2;
       const t = tileAt(rx, ry);
       if(t !== 0){
@@ -271,26 +405,36 @@ function draw(){
     const corr = dist * Math.cos(ang - player.dir);
     const lineH = Math.min(H*1.2, (H*70) / Math.max(20, corr));
     const top = H/2 - lineH/2;
-    ctx.drawImage(tex[hit], Math.floor(texX), 0, 1, 64, i*colW, top, colW+1, lineH);
+    const tx = Math.floor(rx/TILE);
 
-    // туман слабее, чтобы дальние стены оставались видимыми
+    // окно — единая панорама из трёх тайлов: луна только в центре
+    let img = (hit === 6) ? curTvFrame : tex[hit];
+    if(hit === 5) img = tx === 6 ? texWinL : (tx === 7 ? texWinM : texWinR);
+    ctx.drawImage(img, Math.floor(texX), 0, 1, 64, i*colW, top, colW+1, lineH);
+
     const sh = Math.min(0.85, corr/900*0.85 + (hit===5 ? 0 : 0.1));
     ctx.fillStyle = 'rgba(0,0,0,' + sh.toFixed(2) + ')';
     ctx.fillRect(i*colW, top, colW+1, lineH);
 
-    // силуэт монстра в окне: голова, туловище, руки, глаза
-    if(hit === 5 && monster.active){
-      const rel = texX / TILE;
-      if(rel > 0.32 && rel < 0.68) fillCol(i*colW, colW, top+lineH*0.28, lineH*0.5, '#050005');
+    // ОДИН монстр на всё окно: позиция считается по всей ширине окна
+    if(hit === 5 && monster.active && tx >= WIN_TX0 && tx < WIN_TX0+3){
+      const rel = ((tx - WIN_TX0)*TILE + texX) / (3*TILE);
+      // ноги
+      if((rel > 0.36 && rel < 0.46) || (rel > 0.54 && rel < 0.64))
+        fillCol(i*colW, colW, top+lineH*0.72, lineH*0.3, '#050004');
+      // туловище
+      if(rel > 0.30 && rel < 0.70) fillCol(i*colW, colW, top+lineH*0.28, lineH*0.5, '#050005');
+      // голова
       if(rel > 0.42 && rel < 0.58) fillCol(i*colW, colW, top+lineH*0.12, lineH*0.2, '#070006');
-      if((rel > 0.24 && rel < 0.32) || (rel > 0.68 && rel < 0.76))
-        fillCol(i*colW, colW, top+lineH*0.34, lineH*0.34, '#050004');
+      // руки
+      if((rel > 0.22 && rel < 0.30) || (rel > 0.70 && rel < 0.78))
+        fillCol(i*colW, colW, top+lineH*0.34, lineH*0.4, '#050004');
+      // глаза
       if((rel > 0.45 && rel < 0.49) || (rel > 0.51 && rel < 0.55))
         fillCol(i*colW, colW, top+lineH*0.17, lineH*0.03, Math.random() > 0.3 ? '#ff2222' : '#550000');
     }
   }
 
-  // мерцание
   if(Math.random() > 0.97){
     ctx.fillStyle = 'rgba(255,255,255,0.05)';
     ctx.fillRect(0, 0, W, H);
@@ -300,11 +444,12 @@ function draw(){
 function gameOver(){
   if(!running) return;
   running = false;
-  document.getElementById('gameover').style.display = 'flex';
+  jumpscare(); // сначала скример, потом экран проигрыша
 }
 function winGame(){
   if(!running) return;
   running = false;
+  if(audioCtx && tvNoise){ try{ tvNoise.stop(); }catch(e){} }
   document.getElementById('win').style.display = 'flex';
 }
 
