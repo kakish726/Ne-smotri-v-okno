@@ -37,8 +37,8 @@ button:active{transform:scale(.96)}
 #joy{position:fixed;left:0;top:0;width:0;height:0;z-index:12;display:none}
 #joybase{position:absolute;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);left:-60px;top:-60px}
 #joyknob{position:absolute;width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.35);left:-27px;top:-27px}
-#redflash{position:fixed;inset:0;background:rgba(140,0,0,.4);z-index:30;display:none;pointer-events:none}
-#redflash.on{display:block;animation:blink .15s infinite}
+#vig{position:fixed;inset:0;z-index:29;pointer-events:none;display:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(90,0,0,.65) 100%)}
+#flash{position:fixed;inset:0;z-index:31;pointer-events:none;display:none}
 #jumpscare{background:#000;z-index:40}
 .face{position:relative;width:78vmin;height:78vmin;animation:jsh .07s infinite}
 @keyframes jsh{0%{transform:translate(-8px,5px) scale(1.05)}25%{transform:translate(9px,-6px) scale(1.1)}50%{transform:translate(-6px,-7px) scale(1.07)}75%{transform:translate(8px,6px) scale(1.12)}100%{transform:translate(-8px,5px) scale(1.05)}}
@@ -48,7 +48,7 @@ button:active{transform:scale(.96)}
 .mouth{position:absolute;bottom:6%;left:16%;width:68%;height:26%;background:radial-gradient(ellipse at center,#4a0000 0%,#000 72%);border-radius:0 0 45% 45%/0 0 100% 100%;overflow:hidden;animation:chomp .22s infinite}
 @keyframes chomp{50%{transform:scaleY(.45)}}
 .teeth{position:absolute;top:0;left:0;right:0;height:38%;background:repeating-linear-gradient(90deg,#e8e2cf 0 8%,transparent 8% 14%)}
-#death{background:radial-gradient(ellipse at center,#200 0%,#000 80%)}
+#death{background:#000}
 #win{background:radial-gradient(ellipse at center,#1c2416 0%,#000 80%)}
 #death h1,#win h1{font-size:min(10vw,50px);margin:0 0 8px}
 #death h1{color:#ff3030}#win h1{color:#ffd76a}
@@ -67,7 +67,8 @@ button:active{transform:scale(.96)}
 <div id="stam"><div id="stamfill"></div></div>
 <div id="sprint">БЕГ</div>
 <div id="joy"><div id="joybase"></div><div id="joyknob"></div></div>
-<div id="redflash"></div>
+<div id="vig"></div>
+<div id="flash"></div>
 
 <div id="jumpscare" class="ov">
   <div class="face">
@@ -94,8 +95,8 @@ button:active{transform:scale(.96)}
 <div id="start" class="ov show">
   <h1>НЕ СМОТРИ В ОКНО 2<br>ПОБЕГ ИЗ ЛЕСА</h1>
   <p>Джойстик слева — идти, свайп справа — смотреть. Кнопка справа — бег (следи за шкалой сил). Подойди к двери — она откроется сама.</p>
-  <p><span class="end">Концовка 1 — РАССВЕТ:</span> не выходи из дома и переживи две ночи. В доме монстр за тобой НЕ гонится — он придёт к окну и будет смотреть. <b>Не смотри на него в ответ</b>. Днём он слепнет.</p>
-  <p><span class="end">Концовка 2 — ПОБЕГ:</span> выйди из дома и ночью добеги до края леса, за туманную стену. Снаружи монстр бежит за тобой — не дай себя поймать.</p>
+  <p><span class="end">Концовка 1 — РАССВЕТ:</span> не выходи из дома и переживи две ночи. Ночью монстр придёт к окну — <b>не смотри на него</b>. Днём он исчезает, и на окно можно смотреть.</p>
+  <p><span class="end">Концовка 2 — ПОБЕГ:</span> выйди из дома и ночью добеги до края леса. Снаружи монстр мчится за тобой со скоростью твоего бега!</p>
   <p class="small" id="startcnt"></p>
   <button onclick="beginGame()">НАЧАТЬ НОЧЬ</button>
 </div>
@@ -106,9 +107,8 @@ button:active{transform:scale(.96)}
 const $=id=>document.getElementById(id);
 let renderer,scene,camera,amb,moon,sun,clock;
 let state='menu',tGame=0,gaze=0,stareWait=0,hbT=0,hintT=0,mFreeze=0;
-let catchT=0,catchRoared=false,catchFromX=0,catchFromZ=0;
+let catchT=0,catchRoared=false,catchFromX=0,catchFromZ=0,leapX=0,leapZ=0,leapInit=false,shake=0;
 let deaths=parseInt(localStorage.getItem('nsvo2_deaths')||'0',10);
-// спавн игрока: у окна, подальше от двери
 const player={pos:new THREE.Vector3(0,0,-2.2),yaw:0,pitch:0,stamina:150,exh:false,sprint:false};
 const keys={};
 const joy={id:null,bx:0,by:0,dx:0,dy:0};
@@ -123,11 +123,17 @@ let monster=null,eyeMat,mLight,glass,doorG;
 let mState='idle',mPos=new THREE.Vector3(0,0,-9);
 let runDone=false,night2Done=false,doorOpen=0,everOutside=false;
 const cN=new THREE.Color(0x05070d),cD=new THREE.Color(0x9db8c8);
+// графика
+let stars,sunSprite,shafts=[],moonDisc,fireflies,ffPos,ffVel;
+// звук
+let actx=null,nb=null,windGain=null,tBird=2,tCricket=1;
 
 function init(){
   renderer=new THREE.WebGLRenderer({antialias:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.setSize(innerWidth,innerHeight);
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   $('game').appendChild(renderer.domElement);
   scene=new THREE.Scene();
   scene.background=cN.clone();
@@ -138,14 +144,21 @@ function init(){
 
   amb=new THREE.AmbientLight(0x334455,0.3);scene.add(amb);
   moon=new THREE.DirectionalLight(0x8899ff,0.3);moon.position.set(20,40,10);scene.add(moon);
-  sun=new THREE.DirectionalLight(0xffeecc,0);sun.position.set(30,50,20);scene.add(sun);
+  sun=new THREE.DirectionalLight(0xffeecc,0);sun.position.set(40,60,25);
+  sun.castShadow=true;
+  sun.shadow.mapSize.set(1024,1024);
+  sun.shadow.camera.left=-70;sun.shadow.camera.right=70;
+  sun.shadow.camera.top=70;sun.shadow.camera.bottom=-70;
+  sun.shadow.camera.near=1;sun.shadow.camera.far=200;
+  scene.add(sun);
 
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(400,400),new THREE.MeshLambertMaterial({color:0x22301c}));
-  ground.rotation.x=-Math.PI/2;scene.add(ground);
+  ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
 
   buildHouse();
   buildForest();
   buildMonster();
+  buildSky();
   bindInput();
 
   addEventListener('resize',()=>{
@@ -162,26 +175,27 @@ function init(){
 function addWall(x1,x2,z1,z2,y1,y2,mat,collide){
   const m=new THREE.Mesh(new THREE.BoxGeometry(x2-x1,y2-y1,z2-z1),mat);
   m.position.set((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);
+  m.castShadow=true;m.receiveShadow=true;
   scene.add(m);
   if(collide!==false)walls.push({x1:x1,x2:x2,z1:z1,z2:z2});
 }
 function buildHouse(){
   const wood=new THREE.MeshLambertMaterial({color:0x6b4a2f});
-  addWall(-4,-1.1,-4.15,-3.85,0,3,wood);           // север слева от окна
-  addWall(1.1,4,-4.15,-3.85,0,3,wood);             // север справа от окна
-  addWall(-1.1,1.1,-4.15,-3.85,2.1,3,wood);        // над окном
-  addWall(-1.1,1.1,-4.15,-3.85,0,0.9,wood);        // под окном
-  addWall(-4,-0.8,3.85,4.15,0,3,wood);             // юг слева от двери
-  addWall(0.8,4,3.85,4.15,0,3,wood);               // юг справа от двери
-  addWall(-0.8,0.8,3.85,4.15,2.4,3,wood,false);    // над дверью — без коллизии
-  addWall(-4.15,-3.85,-4,4,0,3,wood);              // запад
-  addWall(3.85,4.15,-4,4,0,3,wood);                // восток
-  walls.push({x1:-1.1,x2:1.1,z1:-4.15,z2:-3.85});  // невидимая коллизия окна
+  addWall(-4,-1.1,-4.15,-3.85,0,3,wood);
+  addWall(1.1,4,-4.15,-3.85,0,3,wood);
+  addWall(-1.1,1.1,-4.15,-3.85,2.1,3,wood);
+  addWall(-1.1,1.1,-4.15,-3.85,0,0.9,wood);
+  addWall(-4,-0.8,3.85,4.15,0,3,wood);
+  addWall(0.8,4,3.85,4.15,0,3,wood);
+  addWall(-0.8,0.8,3.85,4.15,2.4,3,wood,false);
+  addWall(-4.15,-3.85,-4,4,0,3,wood);
+  addWall(3.85,4.15,-4,4,0,3,wood);
+  walls.push({x1:-1.1,x2:1.1,z1:-4.15,z2:-3.85});
 
   const floor=new THREE.Mesh(new THREE.BoxGeometry(8.6,0.2,8.6),new THREE.MeshLambertMaterial({color:0x3a2a1a}));
-  floor.position.y=-0.1;scene.add(floor);
+  floor.position.y=-0.1;floor.receiveShadow=true;scene.add(floor);
   const roof=new THREE.Mesh(new THREE.ConeGeometry(6.6,3,4),new THREE.MeshLambertMaterial({color:0x2f1f12}));
-  roof.rotation.y=Math.PI/4;roof.position.y=4.5;scene.add(roof);
+  roof.rotation.y=Math.PI/4;roof.position.y=4.5;roof.castShadow=true;scene.add(roof);
 
   glass=new THREE.Mesh(new THREE.PlaneGeometry(2.2,1.2),new THREE.MeshBasicMaterial({color:0xaaccff,transparent:true,opacity:0.12,side:THREE.DoubleSide}));
   glass.position.set(0,1.5,-3.99);scene.add(glass);
@@ -193,7 +207,7 @@ function buildHouse(){
 
   doorG=new THREE.Group();doorG.position.set(-0.8,0,4);
   const door=new THREE.Mesh(new THREE.BoxGeometry(1.6,2.4,0.12),new THREE.MeshLambertMaterial({color:0x4a3320}));
-  door.position.set(0.8,1.2,0);doorG.add(door);
+  door.position.set(0.8,1.2,0);door.castShadow=true;doorG.add(door);
   const knob=new THREE.Mesh(new THREE.SphereGeometry(0.07,8,8),new THREE.MeshBasicMaterial({color:0xd9b24a}));
   knob.position.set(1.45,1.2,0.1);doorG.add(knob);
   scene.add(doorG);
@@ -210,39 +224,141 @@ function buildForest(){
     const s=0.8+Math.random()*0.7,h=3.2*s;
     const g=new THREE.Group();
     const t=new THREE.Mesh(new THREE.CylinderGeometry(0.22*s,0.32*s,h,7),trunkM);
-    t.position.y=h/2;g.add(t);
+    t.position.y=h/2;t.castShadow=true;t.receiveShadow=true;g.add(t);
     const c=new THREE.Mesh(new THREE.ConeGeometry(1.5*s,4.2*s,7),leafM);
-    c.position.y=h+2*s;g.add(c);
+    c.position.y=h+2*s;c.castShadow=true;g.add(c);
     g.position.set(x,0,z);scene.add(g);
     trees.push({x:x,z:z,r:0.55*s});
   }
 }
 
+// ---------- НЕБО: звёзды, луна, солнце, лучи ----------
+function glowTexture(){
+  const cv=document.createElement('canvas');cv.width=cv.height=128;
+  const g=cv.getContext('2d');
+  const gr=g.createRadialGradient(64,64,4,64,64,64);
+  gr.addColorStop(0,'rgba(255,244,200,1)');
+  gr.addColorStop(0.35,'rgba(255,225,150,.45)');
+  gr.addColorStop(1,'rgba(255,210,120,0)');
+  g.fillStyle=gr;g.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(cv);
+}
+function shaftTexture(){
+  const cv=document.createElement('canvas');cv.width=64;cv.height=256;
+  const g=cv.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'rgba(255,240,190,.55)');
+  gr.addColorStop(1,'rgba(255,240,190,0)');
+  g.fillStyle=gr;g.fillRect(0,0,64,256);
+  return new THREE.CanvasTexture(cv);
+}
+function buildSky(){
+  // звёзды
+  const sg=new THREE.BufferGeometry();
+  const sp=[];
+  for(let i=0;i<350;i++){
+    const a=Math.random()*Math.PI*2,e=Math.random()*Math.PI*0.45;
+    sp.push(Math.cos(a)*Math.cos(e)*200,Math.sin(e)*200,Math.sin(a)*Math.cos(e)*200);
+  }
+  sg.setAttribute('position',new THREE.Float32BufferAttribute(sp,3));
+  stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xcfe0ff,size:1.6,sizeAttenuation:false,transparent:true,opacity:0,depthWrite:false}));
+  scene.add(stars);
+  // луна
+  moonDisc=new THREE.Mesh(new THREE.CircleGeometry(7,24),new THREE.MeshBasicMaterial({color:0xe8eeff,transparent:true,opacity:0,depthWrite:false}));
+  moonDisc.position.set(-60,70,-90);moonDisc.lookAt(0,0,0);scene.add(moonDisc);
+  // сияние солнца
+  sunSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture(),transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending}));
+  sunSprite.scale.set(50,50,1);sunSprite.position.set(60,70,40);scene.add(sunSprite);
+  // солнечные лучи
+  const st=shaftTexture();
+  [[7,-6,0.6],[-9,-9,-0.4],[11,4,0.2],[-5,9,0.8]].forEach(p=>{
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(3.5,30),new THREE.MeshBasicMaterial({map:st,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
+    m.position.set(p[0],12,p[1]);m.rotation.z=-0.55;m.rotation.y=p[2];
+    scene.add(m);shafts.push(m);
+  });
+  // светлячки
+  const fg=new THREE.BufferGeometry();
+  ffPos=new Float32Array(40*3);ffVel=new Float32Array(40*3);
+  for(let i=0;i<40;i++){
+    const a=Math.random()*Math.PI*2,r=8+Math.random()*45;
+    ffPos[i*3]=Math.cos(a)*r;ffPos[i*3+1]=0.6+Math.random()*2.5;ffPos[i*3+2]=Math.sin(a)*r;
+    ffVel[i*3]=(Math.random()-0.5)*0.4;ffVel[i*3+1]=(Math.random()-0.5)*0.2;ffVel[i*3+2]=(Math.random()-0.5)*0.4;
+  }
+  fg.setAttribute('position',new THREE.BufferAttribute(ffPos,3));
+  fireflies=new THREE.Points(fg,new THREE.PointsMaterial({color:0xd9f07a,size:0.14,transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending}));
+  scene.add(fireflies);
+}
+
 // ---------- МОНСТР ----------
 function buildMonster(){
   monster=new THREE.Group();
-  const m=new THREE.MeshLambertMaterial({color:0x0b0b0e});
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.55,2.0,8),m);
-  body.position.y=1.15;monster.add(body);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.4,12,10),m);
-  head.position.y=2.45;monster.add(head);
-  const armG=new THREE.BoxGeometry(0.16,1.4,0.16);
-  const aL=new THREE.Mesh(armG,m);aL.position.set(-0.55,1.5,0);monster.add(aL);
-  const aR=new THREE.Mesh(armG,m);aR.position.set(0.55,1.5,0);monster.add(aR);
+  const skin=new THREE.MeshStandardMaterial({color:0x181820,roughness:0.85,metalness:0.1,flatShading:true});
+  const dark=new THREE.MeshStandardMaterial({color:0x0a0a0e,roughness:1,flatShading:true});
+  const teethM=new THREE.MeshBasicMaterial({color:0xd8d2be});
+  // корпус сгорбленный
+  const torso=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.5,1.5,8),skin);
+  torso.position.set(0,1.35,0);torso.rotation.x=0.35;monster.add(torso);
+  const pelvis=new THREE.Mesh(new THREE.SphereGeometry(0.42,10,8),dark);
+  pelvis.position.set(0,0.95,0);monster.add(pelvis);
+  // ноги
+  [-0.22,0.22].forEach(x=>{
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.16,0.95,7),skin);
+    leg.position.set(x,0.48,0);monster.add(leg);
+    const foot=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.1,0.42),dark);
+    foot.position.set(x,0.05,0.12);monster.add(foot);
+  });
+  // голова
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.38,12,10),skin);
+  head.scale.set(1,0.9,1.15);head.position.set(0,2.15,0.42);monster.add(head);
+  const jaw=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.12,0.34),dark);
+  jaw.position.set(0,2.0,0.66);monster.add(jaw);
+  for(let i=0;i<5;i++){
+    const th=new THREE.Mesh(new THREE.ConeGeometry(0.03,0.1,4),teethM);
+    th.position.set(-0.12+i*0.06,2.07,0.7);th.rotation.x=Math.PI;monster.add(th);
+  }
+  // рога
+  [[-0.2,1],[0.2,-1]].forEach(p=>{
+    const h=new THREE.Mesh(new THREE.ConeGeometry(0.08,0.5,6),dark);
+    h.position.set(p[0],2.5,0.28);h.rotation.z=p[1]*0.5;monster.add(h);
+  });
+  // глаза
   eyeMat=new THREE.MeshBasicMaterial({color:0xffdcaa});
-  const eg=new THREE.SphereGeometry(0.08,8,8);
-  const eL=new THREE.Mesh(eg,eyeMat);eL.position.set(-0.14,2.5,0.34);monster.add(eL);
-  const eR=new THREE.Mesh(eg,eyeMat);eR.position.set(0.14,2.5,0.34);monster.add(eR);
-  mLight=new THREE.PointLight(0xff5533,0.7,9);mLight.position.set(0,2.3,0.4);monster.add(mLight);
+  const eg=new THREE.SphereGeometry(0.09,8,8);
+  const eL=new THREE.Mesh(eg,eyeMat);eL.position.set(-0.15,2.22,0.62);monster.add(eL);
+  const eR=new THREE.Mesh(eg,eyeMat);eR.position.set(0.15,2.22,0.62);monster.add(eR);
+  // руки с когтями
+  [-1,1].forEach(s=>{
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.11,1.6,7),skin);
+    arm.position.set(0.55*s,1.5,0.15);arm.rotation.z=0.35*s;monster.add(arm);
+    const hand=new THREE.Mesh(new THREE.SphereGeometry(0.13,8,6),dark);
+    hand.position.set(0.75*s,0.75,0.2);monster.add(hand);
+    for(let i=0;i<3;i++){
+      const cl=new THREE.Mesh(new THREE.ConeGeometry(0.035,0.28,5),teethM);
+      cl.position.set(0.75*s+(i-1)*0.07,0.58,0.2);cl.rotation.x=Math.PI;monster.add(cl);
+    }
+  });
+  mLight=new THREE.PointLight(0xff5533,0.8,10);mLight.position.set(0,2.2,0.5);monster.add(mLight);
+  monster.traverse(o=>{if(o.isMesh)o.castShadow=true;});
   monster.scale.set(1.15,1.15,1.15);
   monster.visible=false;scene.add(monster);
 }
 
 // ---------- ЗВУК ----------
-let actx=null;
 function audioInit(){
   if(!actx){try{actx=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}
-  if(actx&&actx.state==='suspended')actx.resume();
+  if(!actx)return;
+  if(actx.state==='suspended')actx.resume();
+  if(!nb){
+    nb=actx.createBuffer(1,actx.sampleRate*2,actx.sampleRate);
+    const d=nb.getChannelData(0);
+    for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    // ветер — шумовой фон
+    const src=actx.createBufferSource();src.buffer=nb;src.loop=true;
+    const lp=actx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=350;
+    windGain=actx.createGain();windGain.gain.value=0.05;
+    src.connect(lp);lp.connect(windGain);windGain.connect(actx.destination);
+    src.start();
+  }
 }
 function thump(vol){
   if(!actx)return;
@@ -251,18 +367,67 @@ function thump(vol){
   g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.18);
   o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+0.2);
 }
+function birdChirp(){
+  if(!actx)return;
+  const t0=actx.currentTime,n=2+Math.floor(Math.random()*3);
+  for(let i=0;i<n;i++){
+    const t=t0+i*0.12+Math.random()*0.05;
+    const o=actx.createOscillator(),g=actx.createGain();
+    const f=1800+Math.random()*2200;
+    o.type='sine';
+    o.frequency.setValueAtTime(f,t);
+    o.frequency.exponentialRampToValueAtTime(f*(0.6+Math.random()*0.5),t+0.08);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.07,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.1);
+    o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+0.12);
+  }
+}
+function cricket(){
+  if(!actx)return;
+  const t0=actx.currentTime,f=4200+Math.random()*700;
+  for(let i=0;i<3;i++){
+    const t=t0+i*0.09;
+    const o=actx.createOscillator(),g=actx.createGain();
+    o.type='triangle';o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.035,t+0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
+    o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+0.08);
+  }
+}
+function owl(){
+  if(!actx)return;
+  const t=actx.currentTime;
+  [0,0.5].forEach(off=>{
+    const o=actx.createOscillator(),g=actx.createGain();
+    o.type='sine';o.frequency.setValueAtTime(340,t+off);o.frequency.exponentialRampToValueAtTime(260,t+off+0.3);
+    g.gain.setValueAtTime(0.0001,t+off);
+    g.gain.exponentialRampToValueAtTime(0.06,t+off+0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+off+0.45);
+    o.connect(g);g.connect(actx.destination);o.start(t+off);o.stop(t+off+0.5);
+  });
+}
+function screech(){
+  if(!actx)return;
+  const a=actx,t=a.currentTime;
+  const o=a.createOscillator(),g=a.createGain();
+  o.type='sawtooth';o.frequency.setValueAtTime(900,t);o.frequency.exponentialRampToValueAtTime(180,t+0.4);
+  g.gain.setValueAtTime(0.35,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.45);
+  o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+0.5);
+}
 function roar(){
   if(!actx)return;
   const a=actx,t=a.currentTime;
   const g=a.createGain();
   g.gain.setValueAtTime(0.0001,t);
   g.gain.exponentialRampToValueAtTime(0.9,t+0.05);
-  g.gain.exponentialRampToValueAtTime(0.001,t+2.2);
+  g.gain.exponentialRampToValueAtTime(0.001,t+2.4);
   g.connect(a.destination);
   [40,55,80].forEach(f=>{
     const o=a.createOscillator();o.type='sawtooth';
-    o.frequency.setValueAtTime(f*2,t);o.frequency.exponentialRampToValueAtTime(f,t+1.5);
-    o.connect(g);o.start(t);o.stop(t+2.3);
+    o.frequency.setValueAtTime(f*2,t);o.frequency.exponentialRampToValueAtTime(f,t+1.6);
+    o.connect(g);o.start(t);o.stop(t+2.5);
   });
   const buf=a.createBuffer(1,a.sampleRate*2,a.sampleRate),d=buf.getChannelData(0);
   for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2);
@@ -288,7 +453,6 @@ function chime(){
 function bindInput(){
   addEventListener('keydown',e=>{keys[e.code]=true;if(e.code.indexOf('Shift')===0)player.sprint=true;});
   addEventListener('keyup',e=>{keys[e.code]=false;if(e.code.indexOf('Shift')===0)player.sprint=false;});
-
   const cv=renderer.domElement;
   cv.addEventListener('touchstart',e=>{
     e.preventDefault();
@@ -326,7 +490,6 @@ function bindInput(){
   };
   cv.addEventListener('touchend',endT);
   cv.addEventListener('touchcancel',endT);
-
   cv.addEventListener('mousedown',e=>{mouseDrag=true;mx0=e.clientX;my0=e.clientY;});
   addEventListener('mousemove',e=>{
     if(!mouseDrag||state!=='play')return;
@@ -335,7 +498,6 @@ function bindInput(){
     mx0=e.clientX;my0=e.clientY;
   });
   addEventListener('mouseup',()=>mouseDrag=false);
-
   const sb=$('sprint');
   sb.addEventListener('touchstart',e=>{e.preventDefault();player.sprint=true;},{passive:false});
   sb.addEventListener('touchend',e=>{e.preventDefault();player.sprint=false;});
@@ -379,79 +541,91 @@ function spawnBehind(){
   const r=Math.hypot(mPos.x,mPos.z);
   if(r>55){const k=55/r;mPos.x*=k;mPos.z*=k;}
   mState='hunt';monster.visible=true;
-  monster.scale.setScalar(1.15);
+  monster.scale.set(1.15,1.15,1.15);
   mFreeze=2.5;
 }
 function flash(id,ms){const el=$(id);el.classList.add('show');setTimeout(()=>el.classList.remove('show'),ms);}
 function showHint(text){$('hint').firstElementChild.textContent=text;hintT=3;}
 
-// ---------- СЦЕНА ПОИМКИ: разворот -> разбег -> ПРЫЖОК -> поедание ----------
+// ---------- СЦЕНА ПОИМКИ ----------
 function startCatch(){
   if(state!=='play')return;
   state='catch';
-  catchT=0;catchRoared=false;
+  catchT=0;catchRoared=false;leapInit=false;shake=0;
   catchFromX=mPos.x;catchFromZ=mPos.z;
-  $('warning').classList.remove('show');
-  $('near').style.display='none';
-  $('daymsg').style.display='none';
-  $('hint').style.display='none';
+  ['warning','begi'].forEach(i=>$(i).classList.remove('show'));
+  $('near').style.display='none';$('daymsg').style.display='none';$('hint').style.display='none';
+  $('clock').style.display='none';$('stam').style.display='none';$('sprint').style.display='none';
   $('joy').style.display='none';joy.id=null;joy.dx=joy.dy=0;
-  glass.visible=false; // стекло разлетается
-  monster.visible=true;
-  mState='kill';
-  monster.scale.setScalar(1.15);
-  thump(0.8);
+  $('vig').style.display='block';
+  glass.visible=false;
+  monster.visible=true;mState='kill';
+  monster.scale.set(1.15,1.15,1.15);
+  screech();
 }
 function catchUpdate(dt){
   catchT+=dt;
   const dx=mPos.x-player.pos.x,dz=mPos.z-player.pos.z;
-  const dist0=Math.max(0.001,Math.hypot(dx,dz));
+  const d0=Math.max(0.001,Math.hypot(dx,dz));
+  const NOT=0.45,DASH=1.35,LEAP=2.0;
 
-  // --- фаза 1 (0..1.0с): камера разворачивается, монстр несётся на игрока ---
-  if(catchT<1.0){
+  if(catchT<NOT){
+    // фаза 1: замирание, глаза вспыхивают, камера разворачивается
     const yawT=Math.atan2(-dx,-dz);
     let dy=yawT-player.yaw;
     while(dy>Math.PI)dy-=Math.PI*2;
     while(dy<-Math.PI)dy+=Math.PI*2;
     player.yaw+=dy*Math.min(1,dt*12);
-    player.pitch+=(-0.15-player.pitch)*Math.min(1,dt*8);
-    const step=Math.min(9*dt,Math.max(0,dist0-1.1)); // рывок, останавливается в метре
-    if(step>0){mPos.x-=dx/dist0*step;mPos.z-=dz/dist0*step;}
+    player.pitch+=(-0.1-player.pitch)*Math.min(1,dt*8);
+    eyeMat.color.setHex(0xff2222);
+    mLight.intensity=1.6;
+  }else if(catchT<DASH){
+    // фаза 2: разбег с тряской камеры и стуком сердца
+    const step=Math.min(10*dt,Math.max(0,d0-1.1));
+    if(step>0){mPos.x-=dx/d0*step;mPos.z-=dz/d0*step;}
     monster.position.copy(mPos);
     monster.lookAt(player.pos.x,0.6,player.pos.z);
-    eyeMat.color.setHex(0xff2222);
-    mLight.intensity=1.5;
-    $('redflash').classList.add('on');
+    shake=(catchT-NOT)/(DASH-NOT)*0.03;
     hbT-=dt;
-    if(hbT<=0){hbT=0.22;thump(0.6);}
-  }
-  // --- фаза 2 (1.0..1.65с): ПРЫЖОК по дуге прямо в камеру ---
-  else if(catchT<1.65){
-    const t=Math.min(1,(catchT-1.0)/0.65);
-    const tx=player.pos.x+dx/dist0*0.1,tz=player.pos.z+dz/dist0*0.1;
-    mPos.x=catchFromX+(tx-catchFromX)*t;
-    mPos.z=catchFromZ+(tz-catchFromZ)*t;
-    const y=Math.sin(t*Math.PI)*2.4; // дуга прыжка
+    if(hbT<=0){hbT=0.13;thump(0.65);}
+    $('vig').style.opacity=String(0.5+((catchT-NOT)/(DASH-NOT))*0.5);
+  }else if(catchT<LEAP){
+    // фаза 3: прыжок по дуге, зум камеры
+    if(!leapInit){leapInit=true;leapX=mPos.x;leapZ=mPos.z;}
+    const t=(catchT-DASH)/(LEAP-DASH);
+    const tx=player.pos.x+dx/d0*0.05,tz=player.pos.z+dz/d0*0.05;
+    mPos.x=leapX+(tx-leapX)*t;
+    mPos.z=leapZ+(tz-leapZ)*t;
+    const y=Math.sin(t*Math.PI)*2.6;
     monster.position.set(mPos.x,y,mPos.z);
-    monster.scale.setScalar(1.15+t*2.6); // наливается в размерах
+    monster.scale.setScalar(1.15+t*2.6);
     monster.lookAt(player.pos.x,1.6+y,player.pos.z);
-    player.pitch+=(0.9-player.pitch)*Math.min(1,dt*9); // камера задирается вверх
-  }
-  // --- фаза 3 (1.65с..4.3с): пасть на весь экран, жуёт ---
-  else{
+    player.pitch+=(0.85-player.pitch)*Math.min(1,dt*9);
+    camera.fov=75+30*t;camera.updateProjectionMatrix();
+    shake=0.03*(1-t*0.5);
+  }else{
+    // фаза 4: удар — вспышка, пасть, поедание
+    const fc=catchT-LEAP;
     if(!catchRoared){
       catchRoared=true;
+      $('flash').style.display='block';$('flash').style.background='#000';
+      setTimeout(()=>{$('flash').style.display='none';},120);
       roar();
       $('jumpscare').classList.add('show');
-      const fl=$('redflash');fl.classList.remove('on');fl.style.background='rgba(150,0,0,.55)';fl.style.display='block';
+      $('vig').style.display='none';
+      $('flash').style.display='block';
+      $('flash').style.background='rgba(150,0,0,.5)';
+      camera.fov=75;camera.updateProjectionMatrix();
     }
-    const k=Math.min(1,(catchT-1.65)/0.7);
+    const k=Math.min(1,fc/0.8);
     const face=$('jumpscare').querySelector('.face');
-    face.style.transform='scale('+(1+k*0.45)+')';
-    if(catchT>=4.3){
+    face.style.transform='scale('+(1+k*0.5)+')';
+    $('flash').style.background='rgba(150,0,0,'+(0.35+0.3*Math.abs(Math.sin(fc*9)))+')';
+    if(fc>2.4&&fc<2.9){$('flash').style.background='rgba(0,0,0,'+((fc-2.4)/0.5)+')';}
+    if(fc>=2.9){
       $('jumpscare').classList.remove('show');
       $('jumpscare').querySelector('.face').style.transform='';
-      const fl=$('redflash');fl.classList.remove('on');fl.style.display='none';fl.style.background='';
+      $('flash').style.display='none';$('flash').style.background='';
       deaths++;localStorage.setItem('nsvo2_deaths',deaths);
       $('deathinfo').textContent='Монстр настиг тебя и сожрал. В следующий раз будь осторожнее.';
       $('deathcnt').textContent='Смертей: '+deaths;
@@ -461,7 +635,7 @@ function catchUpdate(dt){
     }
   }
   camera.position.set(player.pos.x,1.6,player.pos.z);
-  camera.rotation.set(player.pitch,player.yaw,0);
+  camera.rotation.set(player.pitch+(Math.random()-0.5)*shake,player.yaw+(Math.random()-0.5)*shake,0);
 }
 function win(title,text){
   if(state!=='play')return;
@@ -469,7 +643,7 @@ function win(title,text){
   chime();
   $('clock').style.display='none';$('stam').style.display='none';$('sprint').style.display='none';
   $('near').style.display='none';$('daymsg').style.display='none';$('warning').classList.remove('show');
-  $('redflash').classList.remove('on');$('redflash').style.display='none';
+  $('vig').style.display='none';$('flash').style.display='none';$('flash').style.background='';
   $('wintitle').textContent=title;$('wintext').textContent=text;
   $('wincnt').textContent='Смертей: '+deaths;
   $('win').classList.add('show');
@@ -479,12 +653,14 @@ function startRun(){
   tGame=0;gaze=0;stareWait=0;hintT=0;mFreeze=0;
   catchT=0;catchRoared=false;
   runDone=false;night2Done=false;everOutside=false;
-  mState='idle';mPos.set(0,0,-9);monster.visible=false;monster.scale.setScalar(1.15);glass.visible=true;
+  mState='idle';mPos.set(0,0,-9);monster.visible=false;monster.scale.set(1.15,1.15,1.15);glass.visible=true;
   doorOpen=0;doorG.rotation.y=0;
   player.pos.set(0,0,-2.2);player.yaw=0;player.pitch=0;
   player.stamina=STAM_MAX;player.exh=false;player.sprint=false;
   ['death','win','begi','warning'].forEach(i=>$(i).classList.remove('show'));
-  $('redflash').classList.remove('on');$('redflash').style.display='none';$('redflash').style.background='';
+  $('vig').style.display='none';$('vig').style.opacity='1';
+  $('flash').style.display='none';$('flash').style.background='';
+  camera.fov=75;camera.updateProjectionMatrix();
   $('clock').style.display='block';$('stam').style.display='block';
   $('sprint').style.display='flex';$('hint').style.display='none';
   state='play';clock.getDelta();
@@ -538,7 +714,7 @@ function update(dt){
     showHint('ТЫ ВЫШЕЛ ИЗ ДОМА — КОНЦОВКА 2 ОТКРЫТА. НОЧЬЮ БЕГИ К КРАЮ ЛЕСА!');
   }
 
-  // --- дверь: сама открывается у игрока и закрывается ---
+  // --- дверь ---
   const dDoor=Math.hypot(player.pos.x-DOOR_P.x,player.pos.z-DOOR_P.z);
   doorOpen+=((dDoor<3?1:0)-doorOpen)*Math.min(1,dt*5);
   doorG.rotation.y=-doorOpen*1.9;
@@ -554,6 +730,28 @@ function update(dt){
   amb.intensity=0.25+1.1*dayF;
   moon.intensity=0.3*(1-dayF);
   sun.intensity=dayF;
+  sunSprite.material.opacity=dayF*0.55;
+  stars.material.opacity=1-dayF;
+  moonDisc.material.opacity=(1-dayF)*0.9;
+  fireflies.material.opacity=(1-dayF)*0.9;
+  for(let i=0;i<shafts.length;i++)shafts[i].material.opacity=dayF*0.16;
+  // светлячки летают
+  for(let i=0;i<40;i++){
+    ffPos[i*3]+=ffVel[i*3]*dt;
+    ffPos[i*3+1]+=ffVel[i*3+1]*dt;
+    ffPos[i*3+2]+=ffVel[i*3+2]*dt;
+    if(Math.random()<0.01){ffVel[i*3]=(Math.random()-0.5)*0.4;ffVel[i*3+2]=(Math.random()-0.5)*0.4;}
+    if(ffPos[i*3+1]<0.4||ffPos[i*3+1]>3.2)ffVel[i*3+1]*=-1;
+    const rr=Math.hypot(ffPos[i*3],ffPos[i*3+2]);
+    if(rr>55){ffPos[i*3]*=0.95;ffPos[i*3+2]*=0.95;}
+  }
+  fireflies.geometry.attributes.position.needsUpdate=true;
+
+  // --- МОНСТР: днём его НЕТ ---
+  if(!night&&monster.visible&&state==='play'){
+    monster.visible=false;
+    mState='idle';
+  }
 
   // --- объявления ---
   if(!runDone&&tGame>=12){
@@ -567,7 +765,7 @@ function update(dt){
     spawnBehind();flash('begi',3000);
   }
 
-  // --- МОНСТР ---
+  // --- монстр ---
   const inside=Math.abs(player.pos.x)<4.05&&Math.abs(player.pos.z)<4.05;
   const doorBlocked=doorOpen<0.7;
   const mInside=Math.abs(mPos.x)<4.05&&Math.abs(mPos.z)<4.05;
@@ -576,39 +774,33 @@ function update(dt){
   if(mFreeze>0)mFreeze-=dt;
 
   if(mState==='hunt'){
-    // ПОКА ИГРОК В ДОМЕ И ДВЕРЬ ЗАКРЫТА — монстр НЕ гонится: идёт к окну
+    // в доме с закрытой дверью монстр НЕ гонится — идёт к окну
     const goWindow=inside&&doorBlocked&&!mInside;
-    const msp=night?2.9:0.9;
+    const msp=night?4.7:0.9; // ночью — со скоростью бега игрока
     if(mFreeze<=0){
       const target=goWindow?WINDOW_SPOT:player.pos;
       const dir=new THREE.Vector3(target.x-mPos.x,0,target.z-mPos.z);
       const len=dir.length();
       if(len>0.05){dir.divideScalar(len);mPos.addScaledVector(dir,Math.min(msp*dt,len));}
       if(goWindow&&mPos.distanceTo(WINDOW_SPOT)<0.9){mState='stare';stareWait=0;}
-      // схватить может ТОЛЬКО снаружи или если сам уже в доме
       if((!inside||mInside)&&mPos.distanceTo(player.pos)<1.6)startCatch();
     }
   }else if(mState==='stare'){
-    // смотрит в окно. Ушёл из дома или рассвело — возвращается в погоню/уходит
     if(!inside||!doorBlocked||!night)mState='hunt';
-    else stareWait+=dt;
     faceTarget=WINDOW_C;
-  }else if(mState==='flee'){
-    const away=new THREE.Vector3(mPos.x-player.pos.x,0,mPos.z-player.pos.z);
-    const l=away.length()||1;away.divideScalar(l);
-    mPos.addScaledVector(away,1.5*dt);
-    faceTarget=new THREE.Vector3(mPos.x+away.x,0,mPos.z+away.z);
-    if(night)mState='hunt';
   }
   if(monster.visible&&mState!=='kill'){
     monster.position.copy(mPos);
     monster.lookAt(faceTarget.x,0.5,faceTarget.z);
     const staring=mState==='stare';
     eyeMat.color.setHex(staring?0xfff4c8:0xcc8844);
-    mLight.intensity=staring?1.2:0.6;
+    mLight.intensity=staring?1.3:0.7;
+    // дыхание
+    const br=1+Math.sin(tGame*2.4)*0.02;
+    monster.scale.set(1.15,1.15*br,1.15);
   }
 
-  // --- правило: не смотри в окно ---
+  // --- правило: не смотри в окно (только ночью) ---
   if(mState==='stare'&&night&&monster.visible){
     const toW=new THREE.Vector3().subVectors(WINDOW_C,camera.position).normalize();
     const fw=camera.getWorldDirection(new THREE.Vector3());
@@ -619,7 +811,7 @@ function update(dt){
       gaze=Math.max(0,gaze-dt*2);
       if(gaze<=0.03)$('warning').classList.remove('show');
     }
-    if(gaze>1.5)startCatch(); // посмотрел — монстр прыгает в окно и ест
+    if(gaze>1.5)startCatch();
   }else{
     gaze=0;
     $('warning').classList.remove('show');
@@ -629,7 +821,7 @@ function update(dt){
   camera.position.set(player.pos.x,1.6,player.pos.z);
   camera.rotation.set(player.pitch,player.yaw,0);
 
-  // --- сердце и "ОН РЯДОМ" (только когда монстр реально гонится) ---
+  // --- сердце и "ОН РЯДОМ" ---
   if(monster.visible&&night&&mState==='hunt'&&!mInside){
     const d=mPos.distanceTo(player.pos);
     hbT-=dt;
@@ -639,6 +831,22 @@ function update(dt){
     }
     $('near').style.display=d<10?'block':'none';
   }else $('near').style.display='none';
+
+  // --- звуки окружения ---
+  if(actx){
+    windGain.gain.setTargetAtTime(dayF>0.5?0.03:0.07,actx.currentTime,1);
+    if(dayF>0.5){
+      tBird-=dt;
+      if(tBird<=0){birdChirp();tBird=1.2+Math.random()*3;}
+    }else{
+      tCricket-=dt;
+      if(tCricket<=0){
+        cricket();
+        if(Math.random()<0.1)owl();
+        tCricket=0.5+Math.random()*1.4;
+      }
+    }
+  }
 
   // --- подсказка ---
   if(hintT>0){hintT-=dt;$('hint').style.display='block';}
