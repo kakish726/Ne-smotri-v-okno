@@ -89,9 +89,9 @@ button:active{transform:scale(.96)}
 
 <div id="start" class="ov show">
   <h1>НЕ СМОТРИ В ОКНО 2<br>ПОБЕГ ИЗ ЛЕСА</h1>
-  <p>Джойстик слева — идти, свайп справа — смотреть. Кнопка справа — бег (следи за шкалой сил).</p>
-  <p><span class="end">Концовка 1 — РАССВЕТ:</span> переживи две ночи. Ночью монстр может прийти к окну — <b>не смотри на окно, если он там</b>. Днём он слепнет — переждивай.</p>
-  <p><span class="end">Концовка 2 — ПОБЕГ:</span> ночью добеги до края леса, за туманную стену. Днём лес не выпустит.</p>
+  <p>Джойстик слева — идти, свайп справа — смотреть. Кнопка справа — бег (следи за шкалой сил). Подойди к двери — она откроется сама.</p>
+  <p><span class="end">Концовка 1 — РАССВЕТ:</span> не выходи из дома и переживи две ночи. Ночью монстр придёт к окну — <b>не смотри на него</b>. Днём он слепнет — пережди.</p>
+  <p><span class="end">Концовка 2 — ПОБЕГ:</span> открывается, когда ты вышел из дома. Ночью добеги до края леса, за туманную стену. Днём лес не выпустит.</p>
   <p class="small" id="startcnt"></p>
   <button onclick="beginGame()">НАЧАТЬ НОЧЬ</button>
 </div>
@@ -108,13 +108,13 @@ const keys={};
 const joy={id:null,bx:0,by:0,dx:0,dy:0};
 const camT={id:null,x:0,y:0};
 let mouseDrag=false,mx0=0,my0=0;
-const NIGHT_LEN=70,CYCLE=100,TOTAL=170;
+const NIGHT_LEN=70,DAY_LEN=50,CYCLE=NIGHT_LEN+DAY_LEN,TOTAL=CYCLE+NIGHT_LEN;
 const WINDOW_C=new THREE.Vector3(0,1.6,-4),WINDOW_SPOT=new THREE.Vector3(0,0,-6.4),DOOR_P=new THREE.Vector3(0,0,4);
 const FOREST_R=62;
 const walls=[],trees=[];
 let monster=null,eyeMat,mLight,glass,doorG;
 let mState='idle',mPos=new THREE.Vector3(0,0,-9);
-let runDone=false,night2Done=false,doorOpen=0;
+let runDone=false,night2Done=false,doorOpen=0,everOutside=false;
 const cN=new THREE.Color(0x05070d),cD=new THREE.Color(0x9db8c8);
 
 function init(){
@@ -152,11 +152,11 @@ function init(){
 }
 
 // ---------- ДОМ ----------
-function addWall(x1,x2,z1,z2,y1,y2,mat){
+function addWall(x1,x2,z1,z2,y1,y2,mat,collide){
   const m=new THREE.Mesh(new THREE.BoxGeometry(x2-x1,y2-y1,z2-z1),mat);
   m.position.set((x1+x2)/2,(y1+y2)/2,(z1+z2)/2);
   scene.add(m);
-  walls.push({x1:x1,x2:x2,z1:z1,z2:z2});
+  if(collide!==false)walls.push({x1:x1,x2:x2,z1:z1,z2:z2});
 }
 function buildHouse(){
   const wood=new THREE.MeshLambertMaterial({color:0x6b4a2f});
@@ -164,9 +164,9 @@ function buildHouse(){
   addWall(1.1,4,-4.15,-3.85,0,3,wood);             // север справа от окна
   addWall(-1.1,1.1,-4.15,-3.85,2.1,3,wood);        // над окном
   addWall(-1.1,1.1,-4.15,-3.85,0,0.9,wood);        // под окном
-  addWall(-4,-0.7,3.85,4.15,0,3,wood);             // юг слева от двери
-  addWall(0.7,4,3.85,4.15,0,3,wood);               // юг справа от двери
-  addWall(-0.7,0.7,3.85,4.15,2.4,3,wood);          // над дверью
+  addWall(-4,-0.8,3.85,4.15,0,3,wood);             // юг слева от двери
+  addWall(0.8,4,3.85,4.15,0,3,wood);               // юг справа от двери
+  addWall(-0.8,0.8,3.85,4.15,2.4,3,wood,false);    // над дверью — БЕЗ коллизии, чтобы можно было выйти
   addWall(-4.15,-3.85,-4,4,0,3,wood);              // запад
   addWall(3.85,4.15,-4,4,0,3,wood);                // восток
   walls.push({x1:-1.1,x2:1.1,z1:-4.15,z2:-3.85});  // невидимая коллизия окна
@@ -179,16 +179,16 @@ function buildHouse(){
   glass=new THREE.Mesh(new THREE.PlaneGeometry(2.2,1.2),new THREE.MeshBasicMaterial({color:0xaaccff,transparent:true,opacity:0.12,side:THREE.DoubleSide}));
   glass.position.set(0,1.5,-3.99);scene.add(glass);
   const fr=new THREE.MeshBasicMaterial({color:0x2b1d10});
-  [[-1.1,1.5,0.08,1.4],[1.1,1.5,0.08,1.4]].forEach(p=>{
-    const b=new THREE.Mesh(new THREE.BoxGeometry(p[2],p[3],0.15),fr);
+  [[-1.1,1.5],[1.1,1.5]].forEach(p=>{
+    const b=new THREE.Mesh(new THREE.BoxGeometry(0.08,1.4,0.15),fr);
     b.position.set(p[0],p[1],-3.95);scene.add(b);
   });
 
-  doorG=new THREE.Group();doorG.position.set(-0.7,0,4);
-  const door=new THREE.Mesh(new THREE.BoxGeometry(1.4,2.4,0.12),new THREE.MeshLambertMaterial({color:0x4a3320}));
-  door.position.set(0.7,1.2,0);doorG.add(door);
+  doorG=new THREE.Group();doorG.position.set(-0.8,0,4);
+  const door=new THREE.Mesh(new THREE.BoxGeometry(1.6,2.4,0.12),new THREE.MeshLambertMaterial({color:0x4a3320}));
+  door.position.set(0.8,1.2,0);doorG.add(door);
   const knob=new THREE.Mesh(new THREE.SphereGeometry(0.07,8,8),new THREE.MeshBasicMaterial({color:0xd9b24a}));
-  knob.position.set(1.25,1.2,0.1);doorG.add(knob);
+  knob.position.set(1.45,1.2,0.1);doorG.add(knob);
   scene.add(doorG);
 }
 
@@ -339,7 +339,7 @@ function bindInput(){
 // ---------- КОЛЛИЗИИ ----------
 function collide(p,rad){
   const boxes=walls.slice();
-  if(doorOpen<0.7)boxes.push({x1:-0.7,x2:0.7,z1:3.85,z2:4.15});
+  if(doorOpen<0.7)boxes.push({x1:-0.8,x2:0.8,z1:3.85,z2:4.15});
   for(const w of boxes){
     const cx=Math.max(w.x1,Math.min(p.x,w.x2));
     const cz=Math.max(w.z1,Math.min(p.z,w.z2));
@@ -369,7 +369,7 @@ function spawnBehind(){
   mState='hunt';monster.visible=true;
 }
 function flash(id,ms){const el=$(id);el.classList.add('show');setTimeout(()=>el.classList.remove('show'),ms);}
-function showHint(text){$('hint').firstElementChild.textContent=text;hintT=2.4;}
+function showHint(text){$('hint').firstElementChild.textContent=text;hintT=3;}
 function jumpscare(){
   if(state!=='play')return;
   state='jump';
@@ -398,7 +398,7 @@ function win(title,text){
 function beginGame(){audioInit();$('start').classList.remove('show');startRun();}
 function startRun(){
   tGame=0;gaze=0;stareWait=0;hintT=0;
-  runDone=false;night2Done=false;
+  runDone=false;night2Done=false;everOutside=false;
   mState='idle';mPos.set(0,0,-9);monster.visible=false;glass.visible=true;
   doorOpen=0;doorG.rotation.y=0;
   player.pos.set(0,0,2);player.yaw=Math.PI;player.pitch=0;
@@ -450,16 +450,22 @@ function update(dt){
   }
   collide(player.pos,0.35);
 
+  // --- выход из дома открывает концовку 2 ---
+  if(!everOutside&&dist>5.5){
+    everOutside=true;
+    showHint('ТЫ ВЫШЕЛ ИЗ ДОМА — КОНЦОВКА 2 ОТКРЫТА. НОЧЬЮ БЕГИ К КРАЮ ЛЕСА!');
+  }
+
   // --- дверь: сама открывается у игрока и закрывается ---
   const dDoor=Math.hypot(player.pos.x-DOOR_P.x,player.pos.z-DOOR_P.z);
   doorOpen+=((dDoor<3?1:0)-doorOpen)*Math.min(1,dt*5);
   doorG.rotation.y=-doorOpen*1.9;
 
-  // --- день и ночь ---
+  // --- день и ночь (день теперь 50 секунд) ---
   let dayF=0;
-  if(phase>=68&&phase<73)dayF=(phase-68)/5;
-  else if(phase>=73&&phase<97)dayF=1;
-  else if(phase>=97)dayF=Math.max(0,1-(phase-97)/5);
+  if(phase>=67&&phase<73)dayF=(phase-67)/6;
+  else if(phase>=73&&phase<115)dayF=1;
+  else if(phase>=115)dayF=Math.max(0,1-(phase-115)/5);
   scene.background.copy(cN).lerp(cD,dayF);
   scene.fog.color.copy(scene.background);
   scene.fog.density=0.05-(0.05-0.018)*dayF;
@@ -488,6 +494,7 @@ function update(dt){
   if(mState==='hunt'){
     const msp=night?3.3:0.9;
     let target=player.pos;
+    // пока игрок сидит в доме с закрытой дверью — монстр идёт к окну
     if(inside&&doorBlocked&&!mInside)target=WINDOW_SPOT;
     const dir=new THREE.Vector3(target.x-mPos.x,0,target.z-mPos.z);
     const len=dir.length();
@@ -495,11 +502,10 @@ function update(dt){
     if(inside&&doorBlocked&&!mInside&&mPos.distanceTo(WINDOW_SPOT)<0.9){mState='stare';stareWait=0;}
     if(mPos.distanceTo(player.pos)<1.3)jumpscare();
   }else if(mState==='stare'){
-    if(!inside||!doorBlocked)mState='hunt';
-    else if(!night)mState='flee';
+    if(!inside||!doorBlocked||!night)mState='hunt'; // дверь открыли или вышел — он в дело
     else{
       stareWait+=dt;
-      if(stareWait>20){ // терпение кончилось — монстр вламывается
+      if(stareWait>25){ // терпение кончилось — монстр вламывается
         glass.visible=false;mState='hunt';
         mPos.set(0,0,-2.8);
         thump(0.9);setTimeout(()=>thump(0.9),300);
@@ -577,8 +583,8 @@ function update(dt){
   $('stamfill').style.background=player.exh?'#c62828':'#4caf50';
 
   // --- концовки ---
-  if(tGame>=TOTAL)win('РАССВЕТ','Две ночи позади. Монстр растворился в утреннем тумане — ты дождался утра. Первая концовка открыта.');
-  if(night&&Math.hypot(player.pos.x,player.pos.z)>FOREST_R)win('ПОБЕГ','Лес позади. Ты выбрался до рассвета — но что-то смотрит тебе вслед. Вторая концовка открыта.');
+  if(tGame>=TOTAL)win('РАССВЕТ','Две ночи позади. Монстр растворился в утреннем тумане — ты дождался утра, не выйдя из дома. Первая концовка открыта.');
+  if(night&&everOutside&&dist>FOREST_R)win('ПОБЕГ','Лес позади. Ты выбрался до рассвета — но что-то смотрит тебе вслед. Вторая концовка открыта.');
 }
 
 init();
