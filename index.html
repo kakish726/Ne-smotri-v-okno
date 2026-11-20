@@ -60,31 +60,24 @@
 <script>
 'use strict';
 
-// --- КОМНАТА ---
+// --- КОМНАТА (компактнее: 12x9 вместо 16x16) ---
 // 0 пусто, 1 стена, 2 шкаф, 3 стол, 4 стул, 5 окно
 const TILE = 64;
 const map = [
- [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
- [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
- [1,0,2,2,0,0,0,0,0,0,0,0,0,4,0,1],
- [1,0,2,2,0,0,0,0,0,0,0,0,0,4,0,1],
- [1,0,0,0,0,0,0,0,3,3,3,0,0,0,0,1],
- [1,0,0,0,0,0,0,0,3,3,3,0,0,0,0,1],
- [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
- [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
- [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
- [1,0,0,0,4,0,0,0,0,0,0,0,2,2,0,1],
- [1,0,0,0,4,0,0,0,0,0,0,0,2,2,0,1],
- [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
- [1,0,0,0,0,0,3,3,0,0,0,0,0,0,0,1],
- [1,0,0,0,0,0,3,3,0,0,0,0,0,0,0,1],
- [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
- [1,1,1,1,1,1,1,1,1,1,5,5,5,1,1,1]
+ [1,1,1,1,1,1,1,1,1,1,1,1],
+ [1,0,2,2,0,0,0,0,4,0,0,1],
+ [1,0,2,2,0,0,3,3,0,0,0,1],
+ [1,0,0,0,0,0,3,3,0,0,0,1],
+ [1,0,0,0,0,0,0,0,0,2,2,1],
+ [1,0,4,0,0,0,0,0,0,2,2,1],
+ [1,0,0,0,0,3,3,0,0,0,0,1],
+ [1,0,0,0,0,0,0,0,0,0,0,1],
+ [1,1,1,1,1,1,5,5,5,1,1,1]
 ];
 const MAP_H = map.length, MAP_W = map[0].length;
 
-const player = { x: 7.5*TILE, y: 11.5*TILE, dir: Math.PI/2 };
-const FOV = Math.PI/3;
+const player = { x: 4.5*TILE, y: 6.5*TILE, dir: Math.PI/2 };
+const FOV = Math.PI*0.42; // шире поле зрения (было PI/3, т.е. 60°)
 
 let running = false, startTime = 0, lastFrame = 0, danger = 0;
 const keys = {};
@@ -225,9 +218,9 @@ function update(dt){
     monster.nextAt = now + 12000 + Math.random()*15000;
   }
 
-  // смотрит ли игрок на окно
+  // смотрит ли игрок на окно (окно теперь в точке 7.5, 8.5)
   if(monster.active){
-    const wx = 11.5*TILE, wy = 15.5*TILE;
+    const wx = 7.5*TILE, wy = 8.5*TILE;
     const ddx = wx - player.x, ddy = wy - player.y;
     const dist = Math.hypot(ddx, ddy);
     let a = Math.atan2(ddy, ddx) - player.dir;
@@ -263,7 +256,7 @@ function draw(){
     const ang = player.dir - FOV/2 + (i+0.5)/numCols*FOV;
     const stepX = Math.cos(ang)*2, stepY = Math.sin(ang)*2;
     let rx = player.x, ry = player.y, dist = 0, hit = 0, texX = 0;
-    while(dist < 520){
+    while(dist < 900){ // дальность видимости увеличена: 900 вместо 520
       rx += stepX; ry += stepY; dist += 2;
       const t = tileAt(rx, ry);
       if(t !== 0){
@@ -280,7 +273,8 @@ function draw(){
     const top = H/2 - lineH/2;
     ctx.drawImage(tex[hit], Math.floor(texX), 0, 1, 64, i*colW, top, colW+1, lineH);
 
-    const sh = Math.min(0.85, corr/520*0.85 + (hit===5 ? 0 : 0.15));
+    // туман слабее, чтобы дальние стены оставались видимыми
+    const sh = Math.min(0.85, corr/900*0.85 + (hit===5 ? 0 : 0.1));
     ctx.fillStyle = 'rgba(0,0,0,' + sh.toFixed(2) + ')';
     ctx.fillRect(i*colW, top, colW+1, lineH);
 
